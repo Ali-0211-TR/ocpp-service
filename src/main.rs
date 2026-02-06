@@ -1,0 +1,210 @@
+//! Texnouz OCPP Central System
+//!
+//! OCPP 1.6 WebSocket server for managing EV charging stations.
+
+use std::sync::Arc;
+
+use log::{error, info, warn};
+use sea_orm_migration::MigratorTrait;
+
+use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
+use texnouz_ocpp::auth::jwt::JwtConfig;
+use texnouz_ocpp::infrastructure::database::migrator::Migrator;
+use texnouz_ocpp::infrastructure::server::ShutdownCoordinator;
+use texnouz_ocpp::infrastructure::{DatabaseStorage, OcppServer};
+use texnouz_ocpp::notifications::create_event_bus;
+use texnouz_ocpp::{create_api_router, init_database, Config, DatabaseConfig};
+
+/// REST API server port
+const API_PORT: u16 = 8080;
+
+/// Graceful shutdown timeout in seconds
+const SHUTDOWN_TIMEOUT_SECS: u64 = 30;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    info!("Starting Texnouz OCPP Central System...");
+
+    // Configuration
+    let config = Config::default();
+
+    // Database configuration (from env or default SQLite)
+    let db_config = DatabaseConfig::from_env();
+    info!("Database: {}", db_config.url);
+
+    // JWT configuration
+    let jwt_config = JwtConfig::from_env();
+    info!("JWT configured with {}h token expiration", jwt_config.expiration_hours);
+
+    // Initialize database connection
+    let db = match init_database(&db_config).await {
+        Ok(db) => db,
+        Err(e) => {
+            error!("Failed to connect to database: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    // Run migrations
+    info!("Running database migrations...");
+    if let Err(e) = Migrator::up(&db, None).await {
+        error!("Failed to run migrations: {}", e);
+        return Err(e.into());
+    }
+    info!("Migrations completed");
+
+    // Create default admin user if not exists
+    create_default_admin(&db).await;
+
+    // Initialize storage (using database)
+    let storage: Arc<dyn texnouz_ocpp::infrastructure::Storage> =
+        Arc::new(DatabaseStorage::new(db.clone()));
+
+    // Initialize services
+    let service = Arc::new(ChargePointService::new(storage.clone()));
+    let billing_service = Arc::new(BillingService::new(storage.clone()));
+
+    // Initialize event bus for real-time notifications
+    let event_bus = create_event_bus();
+    info!("🔔 Event bus initialized for real-time notifications");
+
+    // Initialize shutdown coordinator
+    let shutdown = ShutdownCoordinator::new(SHUTDOWN_TIMEOUT_SECS);
+    let shutdown_signal = shutdown.signal();
+
+    // Start listening for shutdown signals (SIGTERM, SIGINT)
+    shutdown.start_signal_listener();
+
+    // Create OCPP WebSocket server with shutdown support
+    let server = OcppServer::new(config.clone(), service, billing_service, event_bus.clone())
+        .with_shutdown(shutdown_signal.clone());
+
+    // Get session manager and command sender for API
+    let session_manager = server.get_session_manager();
+    let command_sender = server.command_sender().clone();
+
+    // Start Heartbeat Monitor
+    let heartbeat_monitor = Arc::new(HeartbeatMonitor::new(
+        storage.clone(),
+        session_manager.clone(),
+    ));
+    heartbeat_monitor.start(shutdown_signal.clone());
+
+    // Create REST API router (pass heartbeat_monitor for status endpoints)
+    let api_router = create_api_router(
+        storage,
+        session_manager,
+        command_sender,
+        db.clone(),
+        jwt_config,
+        heartbeat_monitor,
+        event_bus,
+    );
+
+    // Start REST API server with graceful shutdown
+    let api_addr = format!("0.0.0.0:{}", API_PORT);
+    let listener = tokio::net::TcpListener::bind(&api_addr).await?;
+    info!("REST API server listening on http://{}", api_addr);
+    info!("Swagger UI available at http://{}/swagger-ui/", api_addr);
+
+    // Create REST API server with graceful shutdown
+    let api_shutdown = shutdown_signal.clone();
+    let api_server = axum::serve(listener, api_router)
+        .with_graceful_shutdown(async move {
+            api_shutdown.wait().await;
+            info!("🛑 REST API server received shutdown signal");
+        });
+
+    // Run both servers concurrently
+    info!("🚀 All servers started. Press Ctrl+C to shutdown gracefully.");
+    
+    let ws_result = tokio::spawn(async move {
+        server.run().await
+    });
+
+    let api_result = tokio::spawn(async move {
+        api_server.await
+    });
+
+    // Wait for shutdown signal or server error
+    tokio::select! {
+        result = ws_result => {
+            match result {
+                Ok(Ok(())) => info!("WebSocket server stopped"),
+                Ok(Err(e)) => error!("WebSocket server error: {}", e),
+                Err(e) => error!("WebSocket server task panicked: {}", e),
+            }
+        }
+        result = api_result => {
+            match result {
+                Ok(Ok(())) => info!("REST API server stopped"),
+                Ok(Err(e)) => error!("REST API server error: {}", e),
+                Err(e) => error!("REST API server task panicked: {}", e),
+            }
+        }
+    }
+
+    // Perform final cleanup
+    info!("🧹 Performing final cleanup...");
+    
+    // Close database connection
+    if let Err(e) = db.close().await {
+        warn!("Error closing database connection: {}", e);
+    } else {
+        info!("✅ Database connection closed");
+    }
+
+    info!("👋 Texnouz OCPP Central System shutdown complete");
+    Ok(())
+}
+
+/// Create default admin user if no users exist
+async fn create_default_admin(db: &sea_orm::DatabaseConnection) {
+    use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
+    use texnouz_ocpp::auth::password::hash_password;
+    use texnouz_ocpp::infrastructure::database::entities::user::{self, UserRole};
+
+    // Check if any users exist
+    let users_count = user::Entity::find().count(db).await.unwrap_or(0);
+
+    if users_count == 0 {
+        info!("Creating default admin user...");
+
+        // Get admin credentials from env or use defaults
+        let admin_email = std::env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@texnouz.com".to_string());
+        let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin123".to_string());
+
+        let password_hash = match hash_password(&admin_password) {
+            Ok(hash) => hash,
+            Err(e) => {
+                error!("Failed to hash admin password: {}", e);
+                return;
+            }
+        };
+
+        let admin = user::ActiveModel {
+            id: Set(uuid::Uuid::new_v4().to_string()),
+            username: Set("admin".to_string()),
+            email: Set(admin_email.clone()),
+            password_hash: Set(password_hash),
+            role: Set(UserRole::Admin),
+            is_active: Set(true),
+            created_at: Set(chrono::Utc::now()),
+            updated_at: Set(chrono::Utc::now()),
+            last_login_at: Set(None),
+        };
+
+        match admin.insert(db).await {
+            Ok(_) => {
+                info!("Default admin created: {}", admin_email);
+                info!("⚠️  Please change the admin password immediately!");
+            }
+            Err(e) => {
+                error!("Failed to create admin user: {}", e);
+            }
+        }
+    }
+}

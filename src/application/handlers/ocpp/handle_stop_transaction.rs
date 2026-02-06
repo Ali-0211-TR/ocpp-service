@@ -1,0 +1,109 @@
+//! StopTransaction handler
+
+use log::{error, info};
+use ocpp_rs::v16::call::StopTransaction;
+use ocpp_rs::v16::call_result::{EmptyResponses, GenericIdTagInfo, ResultPayload};
+use ocpp_rs::v16::data_types::IdTagInfo;
+use ocpp_rs::v16::enums::ParsedGenericStatus;
+
+use crate::application::OcppHandler;
+use crate::notifications::{Event, TransactionStoppedEvent};
+
+pub async fn handle_stop_transaction(
+    handler: &OcppHandler,
+    payload: StopTransaction,
+) -> ResultPayload {
+    info!(
+        "[{}] StopTransaction - TransactionId: {}, MeterStop: {}",
+        handler.charge_point_id, payload.transaction_id, payload.meter_stop
+    );
+
+    let transaction_id = payload.transaction_id as i32;
+
+    // Stop the transaction
+    let stop_result = handler
+        .service
+        .stop_transaction(
+            transaction_id,
+            payload.meter_stop as i32,
+            payload.reason.as_ref().map(|r| format!("{:?}", r)),
+        )
+        .await;
+
+    if let Err(e) = &stop_result {
+        error!(
+            "[{}] Failed to stop transaction {}: {}",
+            handler.charge_point_id, transaction_id, e
+        );
+    }
+
+    // Calculate billing after stopping
+    let mut energy_kwh = 0.0;
+    let mut total_cost = 0.0;
+    let mut currency = "UZS".to_string();
+
+    if stop_result.is_ok() {
+        match handler
+            .billing_service
+            .calculate_transaction_billing(transaction_id, None) // Use default tariff
+            .await
+        {
+            Ok(billing) => {
+                energy_kwh = billing.energy_wh as f64 / 1000.0;
+                total_cost = billing.total_cost as f64 / 100.0;
+                currency = billing.currency.clone();
+
+                info!(
+                    "[{}] Transaction {} billing: {:.2} {} (energy: {:.3} kWh)",
+                    handler.charge_point_id,
+                    transaction_id,
+                    total_cost,
+                    currency,
+                    energy_kwh
+                );
+
+                // Publish transaction stopped event
+                handler.event_bus.publish(Event::TransactionStopped(TransactionStoppedEvent {
+                    charge_point_id: handler.charge_point_id.clone(),
+                    transaction_id,
+                    id_tag: payload.id_tag.clone(),
+                    meter_stop: payload.meter_stop as i32,
+                    energy_consumed_kwh: energy_kwh,
+                    total_cost,
+                    currency,
+                    reason: payload.reason.as_ref().map(|r| format!("{:?}", r)),
+                    timestamp: payload.timestamp.inner(),
+                }));
+            }
+            Err(e) => {
+                error!(
+                    "[{}] Failed to calculate billing for transaction {}: {}",
+                    handler.charge_point_id, transaction_id, e
+                );
+
+                // Still publish event even without billing
+                handler.event_bus.publish(Event::TransactionStopped(TransactionStoppedEvent {
+                    charge_point_id: handler.charge_point_id.clone(),
+                    transaction_id,
+                    id_tag: payload.id_tag.clone(),
+                    meter_stop: payload.meter_stop as i32,
+                    energy_consumed_kwh: 0.0,
+                    total_cost: 0.0,
+                    currency: "UZS".to_string(),
+                    reason: payload.reason.as_ref().map(|r| format!("{:?}", r)),
+                    timestamp: payload.timestamp.inner(),
+                }));
+            }
+        }
+    }
+
+    ResultPayload::PossibleEmptyResponse(EmptyResponses::GenericIdTagInfoResponse(
+        GenericIdTagInfo {
+            id_tag_info: Some(IdTagInfo {
+                status: ParsedGenericStatus::Accepted,
+                expiry_date: None,
+                parent_id_tag: None,
+            }),
+        },
+    ))
+}
