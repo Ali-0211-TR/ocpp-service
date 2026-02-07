@@ -7,4 +7,4 @@ pub mod dto;
 pub mod handlers;
 pub mod router;
 
-pub use router::{create_api_router, ApiState};
+pub use router::create_api_router;

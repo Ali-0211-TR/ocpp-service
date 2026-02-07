@@ -1,6 +1,7 @@
 //! Texnouz OCPP Central System
 //!
 //! OCPP 1.6 WebSocket server for managing EV charging stations.
+//! Reads configuration from TOML file (~/.config/texnouz-ocpp/config.toml).
 
 use std::sync::Arc;
 
@@ -9,37 +10,60 @@ use sea_orm_migration::MigratorTrait;
 
 use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
 use texnouz_ocpp::auth::jwt::JwtConfig;
+use texnouz_ocpp::config::AppConfig;
 use texnouz_ocpp::infrastructure::database::migrator::Migrator;
 use texnouz_ocpp::infrastructure::server::ShutdownCoordinator;
 use texnouz_ocpp::infrastructure::{DatabaseStorage, OcppServer};
 use texnouz_ocpp::notifications::create_event_bus;
-use texnouz_ocpp::{create_api_router, init_database, Config, DatabaseConfig};
-
-/// REST API server port
-const API_PORT: u16 = 8080;
-
-/// Graceful shutdown timeout in seconds
-const SHUTDOWN_TIMEOUT_SECS: u64 = 30;
+use texnouz_ocpp::{create_api_router, default_config_path, init_database, Config, DatabaseConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // ── Load configuration ─────────────────────────────────────
+    // Allow overriding config path via OCPP_CONFIG env var (used by desktop app)
+    let config_path = std::env::var("OCPP_CONFIG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| default_config_path());
+    let app_cfg = match AppConfig::load(&config_path) {
+        Ok(cfg) => {
+            // Initialize logging with configured level
+            env_logger::Builder::from_env(
+                env_logger::Env::default().default_filter_or(&cfg.logging.level),
+            )
+            .init();
+            info!("Configuration loaded from {}", config_path.display());
+            cfg
+        }
+        Err(e) => {
+            env_logger::Builder::from_env(
+                env_logger::Env::default().default_filter_or("info"),
+            )
+            .init();
+            error!("Failed to load config: {}. Using defaults.", e);
+            AppConfig::default()
+        }
+    };
 
     info!("Starting Texnouz OCPP Central System...");
 
-    // Configuration
-    let config = Config::default();
-
-    // Database configuration (from env or default SQLite)
-    let db_config = DatabaseConfig::from_env();
+    // ── Build sub-configs from AppConfig ───────────────────────
+    let config = Config::from(&app_cfg);
+    let db_config = DatabaseConfig {
+        url: app_cfg.database.connection_url(),
+    };
     info!("Database: {}", db_config.url);
 
-    // JWT configuration
-    let jwt_config = JwtConfig::from_env();
-    info!("JWT configured with {}h token expiration", jwt_config.expiration_hours);
+    let jwt_config = JwtConfig {
+        secret: app_cfg.security.jwt_secret.clone(),
+        expiration_hours: app_cfg.security.jwt_expiration_hours,
+        issuer: "texnouz-ocpp".to_string(),
+    };
+    info!(
+        "JWT configured with {}h token expiration",
+        jwt_config.expiration_hours
+    );
 
-    // Initialize database connection
+    // ── Database ───────────────────────────────────────────────
     let db = match init_database(&db_config).await {
         Ok(db) => db,
         Err(e) => {
@@ -48,7 +72,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Run migrations
     info!("Running database migrations...");
     if let Err(e) = Migrator::up(&db, None).await {
         error!("Failed to run migrations: {}", e);
@@ -57,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Migrations completed");
 
     // Create default admin user if not exists
-    create_default_admin(&db).await;
+    create_default_admin(&db, &app_cfg).await;
 
     // Initialize storage (using database)
     let storage: Arc<dyn texnouz_ocpp::infrastructure::Storage> =
@@ -72,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🔔 Event bus initialized for real-time notifications");
 
     // Initialize shutdown coordinator
-    let shutdown = ShutdownCoordinator::new(SHUTDOWN_TIMEOUT_SECS);
+    let shutdown = ShutdownCoordinator::new(app_cfg.server.shutdown_timeout);
     let shutdown_signal = shutdown.signal();
 
     // Start listening for shutdown signals (SIGTERM, SIGINT)
@@ -105,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Start REST API server with graceful shutdown
-    let api_addr = format!("0.0.0.0:{}", API_PORT);
+    let api_addr = format!("{}:{}", app_cfg.server.api_host, app_cfg.server.api_port);
     let listener = tokio::net::TcpListener::bind(&api_addr).await?;
     info!("REST API server listening on http://{}", api_addr);
     info!("Swagger UI available at http://{}/swagger-ui/", api_addr);
@@ -162,7 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Create default admin user if no users exist
-async fn create_default_admin(db: &sea_orm::DatabaseConnection) {
+async fn create_default_admin(db: &sea_orm::DatabaseConnection, app_cfg: &AppConfig) {
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
     use texnouz_ocpp::auth::password::hash_password;
     use texnouz_ocpp::infrastructure::database::entities::user::{self, UserRole};
@@ -173,9 +196,9 @@ async fn create_default_admin(db: &sea_orm::DatabaseConnection) {
     if users_count == 0 {
         info!("Creating default admin user...");
 
-        // Get admin credentials from env or use defaults
-        let admin_email = std::env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@texnouz.com".to_string());
-        let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin123".to_string());
+        let admin_email = app_cfg.admin.email.clone();
+        let admin_username = app_cfg.admin.username.clone();
+        let admin_password = app_cfg.admin.password.clone();
 
         let password_hash = match hash_password(&admin_password) {
             Ok(hash) => hash,
@@ -187,7 +210,7 @@ async fn create_default_admin(db: &sea_orm::DatabaseConnection) {
 
         let admin = user::ActiveModel {
             id: Set(uuid::Uuid::new_v4().to_string()),
-            username: Set("admin".to_string()),
+            username: Set(admin_username),
             email: Set(admin_email.clone()),
             password_hash: Set(password_hash),
             role: Set(UserRole::Admin),

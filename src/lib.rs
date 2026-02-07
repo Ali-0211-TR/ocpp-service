@@ -23,7 +23,7 @@ pub mod infrastructure;
 pub mod notifications;
 pub mod session;
 
-pub use config::Config;
+pub use config::{AppConfig, Config, default_config_path};
 
 // Re-export database types for easy access
 pub use infrastructure::{init_database, DatabaseConfig, DatabaseStorage};

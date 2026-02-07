@@ -81,7 +81,6 @@ pub async fn auth_middleware(
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok())
         .map(String::from);
-
     let Some(auth_header) = auth_header else {
         return auth_error_response(AuthError::MissingToken);
     };

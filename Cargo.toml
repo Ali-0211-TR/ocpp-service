@@ -1,3 +1,6 @@
+[workspace]
+members = ["desktop"]
+
 [package]
 name = "ocpp-service"
 version = "0.1.0"
@@ -37,17 +40,23 @@ sea-orm = { version = "1.1", features = [
 sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
 
 # REST API
-axum = { version = "0.7", features = ["macros", "ws"] }
+axum = { version = "0.8.8", features = ["macros", "ws"] }
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
 tracing = "0.1"
 
 # Swagger/OpenAPI documentation
-utoipa = { version = "4", features = ["axum_extras", "chrono"] }
-utoipa-swagger-ui = { version = "7", features = ["axum"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 # Authentication
 jsonwebtoken = "9"
 bcrypt = "0.16"
 rand = "0.8"
 hex = "0.4"
+
+# Configuration
+toml = "0.8"
+dirs-next = "2.0"
+
+

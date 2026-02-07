@@ -26,7 +26,11 @@ pub struct AppState {
     tag = "Charge Points",
     responses(
         (status = 200, description = "List of charge points", body = ApiResponse<Vec<ChargePointDto>>)
-    )
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
 )]
 pub async fn list_charge_points(
     State(state): State<AppState>,
@@ -62,12 +66,17 @@ pub async fn list_charge_points(
     responses(
         (status = 200, description = "Charge point details", body = ApiResponse<ChargePointDto>),
         (status = 404, description = "Charge point not found")
-    )
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
 )]
 pub async fn get_charge_point(
     State(state): State<AppState>,
     Path(charge_point_id): Path<String>,
 ) -> Result<Json<ApiResponse<ChargePointDto>>, (StatusCode, Json<ApiResponse<ChargePointDto>>)> {
+    println!("Fetching charge point with ID: {}", charge_point_id);
     match state.storage.get_charge_point(&charge_point_id).await {
         Ok(Some(cp)) => {
             let is_online = state.session_manager.is_connected(&cp.id);
@@ -97,7 +106,11 @@ pub async fn get_charge_point(
     responses(
         (status = 200, description = "Charge point deleted"),
         (status = 404, description = "Charge point not found")
-    )
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
 )]
 pub async fn delete_charge_point(
     State(state): State<AppState>,
@@ -119,7 +132,11 @@ pub async fn delete_charge_point(
     tag = "Charge Points",
     responses(
         (status = 200, description = "Charge point statistics", body = ApiResponse<ChargePointStats>)
-    )
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
 )]
 pub async fn get_charge_point_stats(
     State(state): State<AppState>,
@@ -168,7 +185,11 @@ pub async fn get_charge_point_stats(
     tag = "Charge Points",
     responses(
         (status = 200, description = "List of online charge point IDs", body = ApiResponse<Vec<String>>)
-    )
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
 )]
 pub async fn get_online_charge_points(
     State(state): State<AppState>,

@@ -3,13 +3,13 @@
 use std::sync::Arc;
 
 use axum::{
+    extract::FromRef,
     middleware,
     routing::{delete, get, post, put},
     Router,
 };
 use sea_orm::DatabaseConnection;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme, ApiKey, ApiKeyValue};
 use utoipa::{Modify, OpenApi};
@@ -25,39 +25,47 @@ use crate::infrastructure::Storage;
 use crate::notifications::{create_notification_state, ws_notifications_handler, SharedEventBus};
 use crate::session::SharedSessionManager;
 
-/// Combined application state
+/// Unified state for all charge-point related routes (CP CRUD + commands + transactions).
+/// Axum extracts the specific handler state via `FromRef`.
 #[derive(Clone)]
-pub struct ApiState {
+pub struct ChargePointUnifiedState {
     pub storage: Arc<dyn Storage>,
     pub session_manager: SharedSessionManager,
     pub command_sender: Arc<CommandSender>,
-    pub db: DatabaseConnection,
-    pub jwt_config: JwtConfig,
+    pub auth: AuthState,
 }
 
-impl From<ApiState> for charge_points::AppState {
-    fn from(state: ApiState) -> Self {
+// -- FromRef implementations so each handler keeps its own State<T> extractor --
+
+impl FromRef<ChargePointUnifiedState> for charge_points::AppState {
+    fn from_ref(s: &ChargePointUnifiedState) -> Self {
         charge_points::AppState {
-            storage: state.storage,
-            session_manager: state.session_manager,
+            storage: Arc::clone(&s.storage),
+            session_manager: s.session_manager.clone(),
         }
     }
 }
 
-impl From<ApiState> for commands::CommandAppState {
-    fn from(state: ApiState) -> Self {
+impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
+    fn from_ref(s: &ChargePointUnifiedState) -> Self {
         commands::CommandAppState {
-            session_manager: state.session_manager,
-            command_sender: state.command_sender,
+            session_manager: s.session_manager.clone(),
+            command_sender: Arc::clone(&s.command_sender),
         }
     }
 }
 
-impl From<ApiState> for transactions::TransactionAppState {
-    fn from(state: ApiState) -> Self {
+impl FromRef<ChargePointUnifiedState> for transactions::TransactionAppState {
+    fn from_ref(s: &ChargePointUnifiedState) -> Self {
         transactions::TransactionAppState {
-            storage: state.storage,
+            storage: Arc::clone(&s.storage),
         }
+    }
+}
+
+impl FromRef<ChargePointUnifiedState> for AuthState {
+    fn from_ref(s: &ChargePointUnifiedState) -> Self {
+        s.auth.clone()
     }
 }
 
@@ -145,7 +153,6 @@ impl Modify for SecurityAddon {
         schemas(
             // Common
             ApiResponse<String>,
-            ApiResponse<()>,
             PaginatedResponse<TransactionDto>,
             PaginatedResponse<id_tags::IdTagDto>,
             PaginationParams,
@@ -228,19 +235,50 @@ pub fn create_api_router(
     heartbeat_monitor: Arc<HeartbeatMonitor>,
     event_bus: SharedEventBus,
 ) -> Router {
-    let cp_state = charge_points::AppState {
+    let middleware_state = AuthState {
+        jwt_config: jwt_config.clone(),
         storage: storage.clone(),
-        session_manager: session_manager.clone(),
+        db: db.clone(),
     };
 
-    let cmd_state = commands::CommandAppState {
+    // ── Unified state for ALL charge-point related routes ───────────
+    let cp_unified = ChargePointUnifiedState {
+        storage: storage.clone(),
         session_manager: session_manager.clone(),
         command_sender,
+        auth: middleware_state.clone(),
     };
 
-    let tx_state = transactions::TransactionAppState {
-        storage: storage.clone(),
-    };
+    // A SINGLE router for every /api/v1/charge-points/* route.
+    // Because there is only ONE router, Axum's `matchit` sees every
+    // parametric segment in one tree and routes correctly.
+    let charge_point_routes = Router::new()
+        // --- CP CRUD (uses State<AppState> via FromRef) ---
+        .route("/", get(charge_points::list_charge_points))
+        .route("/stats", get(charge_points::get_charge_point_stats))
+        .route("/online", get(charge_points::get_online_charge_points))
+        // Combine GET + DELETE on the same path in a single .route() call
+        .route("/{charge_point_id}", get(charge_points::get_charge_point).delete(charge_points::delete_charge_point))
+        // --- Commands (uses State<CommandAppState> via FromRef) ---
+        .route("/{charge_point_id}/remote-start", post(commands::remote_start))
+        .route("/{charge_point_id}/remote-stop", post(commands::remote_stop))
+        .route("/{charge_point_id}/reset", post(commands::reset_charge_point))
+        .route("/{charge_point_id}/unlock-connector", post(commands::unlock))
+        .route("/{charge_point_id}/change-availability", post(commands::change_avail))
+        .route("/{charge_point_id}/trigger-message", post(commands::trigger_msg))
+        .route("/{charge_point_id}/configuration", get(commands::get_config))
+        // --- Transactions under CP (uses State<TransactionAppState> via FromRef) ---
+        .route("/{charge_point_id}/transactions", get(transactions::list_transactions_for_charge_point))
+        .route("/{charge_point_id}/transactions/active", get(transactions::get_active_transactions))
+        .route("/{charge_point_id}/transactions/stats", get(transactions::get_transaction_stats))
+        // auth middleware + unified state
+        .layer(middleware::from_fn_with_state(
+            middleware_state.clone(),
+            auth_middleware,
+        ))
+        .with_state(cp_unified);
+
+    // ── Other states / routers (unchanged) ─────────────────────────
 
     let auth_state = auth::AuthHandlerState {
         db: db.clone(),
@@ -248,12 +286,6 @@ pub fn create_api_router(
     };
 
     let api_key_state = api_keys::ApiKeyHandlerState { db: db.clone() };
-
-    let middleware_state = AuthState {
-        jwt_config: jwt_config.clone(),
-        storage: storage.clone(),
-        db: db.clone(),
-    };
 
     // CORS configuration
     let cors = CorsLayer::new()
@@ -279,8 +311,7 @@ pub fn create_api_router(
 
     // API Key routes (protected)
     let api_key_routes = Router::new()
-        .route("/", post(api_keys::create_api_key))
-        .route("/", get(api_keys::list_api_keys))
+        .route("/", get(api_keys::list_api_keys).post(api_keys::create_api_key))
         .route("/{id}", delete(api_keys::revoke_api_key))
         .layer(middleware::from_fn_with_state(
             middleware_state.clone(),
@@ -291,13 +322,10 @@ pub fn create_api_router(
     // IdTag routes (protected)
     let id_tag_state = id_tags::IdTagHandlerState { db: db.clone() };
     let id_tag_routes = Router::new()
-        .route("/", get(id_tags::list_id_tags))
-        .route("/", post(id_tags::create_id_tag))
-        .route("/:id_tag", get(id_tags::get_id_tag))
-        .route("/:id_tag", put(id_tags::update_id_tag))
-        .route("/:id_tag", delete(id_tags::delete_id_tag))
-        .route("/:id_tag/block", post(id_tags::block_id_tag))
-        .route("/:id_tag/unblock", post(id_tags::unblock_id_tag))
+        .route("/", get(id_tags::list_id_tags).post(id_tags::create_id_tag))
+        .route("/{id_tag}", get(id_tags::get_id_tag).put(id_tags::update_id_tag).delete(id_tags::delete_id_tag))
+        .route("/{id_tag}/block", post(id_tags::block_id_tag))
+        .route("/{id_tag}/unblock", post(id_tags::unblock_id_tag))
         .layer(middleware::from_fn_with_state(
             middleware_state.clone(),
             auth_middleware,
@@ -310,87 +338,15 @@ pub fn create_api_router(
         session_manager: session_manager.clone(),
     };
     let tariff_routes = Router::new()
-        .route("/", get(tariffs::list_tariffs))
-        .route("/", post(tariffs::create_tariff))
+        .route("/", get(tariffs::list_tariffs).post(tariffs::create_tariff))
         .route("/default", get(tariffs::get_default_tariff))
         .route("/preview-cost", post(tariffs::preview_cost))
-        .route("/:id", get(tariffs::get_tariff))
-        .route("/:id", put(tariffs::update_tariff))
-        .route("/:id", delete(tariffs::delete_tariff))
+        .route("/{id}", get(tariffs::get_tariff).put(tariffs::update_tariff).delete(tariffs::delete_tariff))
         .layer(middleware::from_fn_with_state(
             middleware_state.clone(),
             auth_middleware,
         ))
         .with_state(tariff_state);
-
-    // Charge point CRUD routes (protected) - use full paths
-    let cp_routes = Router::new()
-        .route("/api/v1/charge-points", get(charge_points::list_charge_points))
-        .route("/api/v1/charge-points/stats", get(charge_points::get_charge_point_stats))
-        .route("/api/v1/charge-points/online", get(charge_points::get_online_charge_points))
-        .route("/api/v1/charge-points/{charge_point_id}", get(charge_points::get_charge_point))
-        .route("/api/v1/charge-points/{charge_point_id}", delete(charge_points::delete_charge_point))
-        .layer(middleware::from_fn_with_state(
-            middleware_state.clone(),
-            auth_middleware,
-        ))
-        .with_state(cp_state);
-
-    // Command routes (protected) - use full paths
-    let cmd_routes = Router::new()
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/remote-start",
-            post(commands::remote_start),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/remote-stop",
-            post(commands::remote_stop),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/reset",
-            post(commands::reset_charge_point),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/unlock-connector",
-            post(commands::unlock),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/change-availability",
-            post(commands::change_avail),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/trigger-message",
-            post(commands::trigger_msg),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/configuration",
-            get(commands::get_config),
-        )
-        .layer(middleware::from_fn_with_state(
-            middleware_state.clone(),
-            auth_middleware,
-        ))
-        .with_state(cmd_state);
-
-    // Transaction routes nested under charge points (protected) - use full paths
-    let cp_tx_routes = Router::new()
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/transactions",
-            get(transactions::list_transactions_for_charge_point),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/transactions/active",
-            get(transactions::get_active_transactions),
-        )
-        .route(
-            "/api/v1/charge-points/{charge_point_id}/transactions/stats",
-            get(transactions::get_transaction_stats),
-        )
-        .layer(middleware::from_fn_with_state(
-            middleware_state.clone(),
-            auth_middleware,
-        ))
-        .with_state(tx_state);
 
     // Transaction routes (standalone, not under charge-points)
     let tx_routes = Router::new()
@@ -424,10 +380,12 @@ pub fn create_api_router(
         .route("/ws", get(ws_notifications_handler))
         .with_state(notification_state);
 
+    let swagger_routes = SwaggerUi::new("/docs")
+        .url("/api-doc/openapi.json", ApiDoc::openapi());
     // Build router
     Router::new()
         // Swagger UI
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(swagger_routes)
         // Health
         .route("/health", get(health::health_check))
         // Auth
@@ -439,18 +397,14 @@ pub fn create_api_router(
         .nest("/api/v1/id-tags", id_tag_routes)
         // Tariffs
         .nest("/api/v1/tariffs", tariff_routes)
-        // Charge Points (merged with full paths to avoid nest/merge parametric route issues)
-        .merge(cp_routes)
-        .merge(cmd_routes)
-        .merge(cp_tx_routes)
+        // Charge Points — ONE nested router with unified state (fixes parametric route bug)
+        .nest("/api/v1/charge-points", charge_point_routes)
+        // Transactions (standalone)
         .nest("/api/v1/transactions", tx_routes)
         // Monitoring
         .nest("/api/v1/monitoring", monitoring_routes)
         // Notifications WebSocket
         .nest("/api/v1/notifications", notification_routes)
-        // Static files (UI Dashboard)
-        .nest_service("/assets", ServeDir::new("web/assets"))
-        .fallback_service(ServeFile::new("web/index.html"))
         // Middleware
         .layer(cors)
         .layer(TraceLayer::new_for_http())
