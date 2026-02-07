@@ -3,11 +3,18 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Standard API response wrapper
+/// Стандартная обёртка ответа API
+///
+/// Все REST-эндпоинты возвращают данные в этой обёртке.
+/// При успехе: `{"success": true, "data": {...}}`,
+/// при ошибке: `{"success": false, "error": "описание"}`.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApiResponse<T> {
+    /// `true` если запрос выполнен успешно
     pub success: bool,
+    /// Полезная нагрузка (данные). `null` при ошибке
     pub data: Option<T>,
+    /// Описание ошибки. `null` при успехе
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -34,13 +41,13 @@ impl<T> ApiResponse<T> {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EmptyData {}
 
-/// Pagination parameters
+/// Параметры пагинации для запросов со списками
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
 pub struct PaginationParams {
-    /// Page number (1-based)
+    /// Номер страницы (начиная с 1). По умолчанию: 1
     #[serde(default = "default_page")]
     pub page: u32,
-    /// Items per page
+    /// Количество элементов на странице (1–100). По умолчанию: 50
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
@@ -53,13 +60,20 @@ fn default_limit() -> u32 {
     50
 }
 
-/// Paginated response
+/// Ответ с пагинацией
+///
+/// Содержит срез данных и метаинформацию о странице.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PaginatedResponse<T> {
+    /// Массив элементов на текущей странице
     pub items: Vec<T>,
+    /// Общее количество элементов (по всем страницам)
     pub total: u64,
+    /// Текущая страница (1-based)
     pub page: u32,
+    /// Размер страницы
     pub limit: u32,
+    /// Общее количество страниц
     pub total_pages: u32,
 }
 

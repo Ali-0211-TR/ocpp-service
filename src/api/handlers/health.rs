@@ -4,20 +4,27 @@ use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
+/// Состояние сервиса
 #[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResponse {
+    /// Статус: `ok` — сервис работает нормально
     pub status: String,
+    /// Версия OCPP Central System (из Cargo.toml)
     pub version: String,
+    /// Время работы сервиса в секундах с момента запуска
     pub uptime_seconds: u64,
 }
 
-/// Health check
+/// Проверка состояния сервиса
+///
+/// Возвращает текущий статус, версию и время работы.
+/// Не требует авторизации. Используйте для мониторинга доступности.
 #[utoipa::path(
     get,
     path = "/health",
-    tag = "System",
+    tag = "Health",
     responses(
-        (status = 200, description = "Service is healthy", body = HealthResponse)
+        (status = 200, description = "Сервис работает нормально", body = HealthResponse)
     )
 )]
 pub async fn health_check() -> Json<HealthResponse> {

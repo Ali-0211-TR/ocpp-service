@@ -25,18 +25,22 @@ pub struct CommandAppState {
     pub command_sender: Arc<CommandSender>,
 }
 
-/// Remote start transaction
+/// Удалённый запуск зарядки
+///
+/// Отправляет RemoteStartTransaction на станцию.
+/// Станция должна быть онлайн (WebSocket-соединение активно).
+/// IdTag должен существовать и быть активным.
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/remote-start",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     request_body = RemoteStartRequest,
     responses(
-        (status = 200, description = "Command result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn remote_start(
@@ -83,18 +87,21 @@ pub async fn remote_start(
     }
 }
 
-/// Remote stop transaction
+/// Удалённая остановка зарядки
+///
+/// Отправляет RemoteStopTransaction.
+/// ID транзакции можно получить из `/transactions/active`.
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/remote-stop",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     request_body = RemoteStopRequest,
     responses(
-        (status = 200, description = "Command result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn remote_stop(
@@ -134,18 +141,21 @@ pub async fn remote_stop(
     }
 }
 
-/// Reset charge point
+/// Перезагрузка станции
+///
+/// Soft — дождаться завершения текущих транзакций.
+/// Hard — немедленная перезагрузка.
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/reset",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     request_body = ResetRequest,
     responses(
-        (status = 200, description = "Command result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn reset_charge_point(
@@ -188,18 +198,21 @@ pub async fn reset_charge_point(
     }
 }
 
-/// Unlock connector
+/// Разблокировка коннектора
+///
+/// Принудительно освобождает разъём зарядной станции.
+/// Полезно когда кабель застрял.
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/unlock-connector",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     request_body = UnlockConnectorRequest,
     responses(
-        (status = 200, description = "Command result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Результат: Unlocked, UnlockFailed или NotSupported", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn unlock(
@@ -237,18 +250,23 @@ pub async fn unlock(
     }
 }
 
-/// Change connector availability
+/// Изменение доступности коннектора
+///
+/// connector_id=0 меняет доступность всей станции.
+/// `Operative` = доступен, `Inoperative` = на обслуживании.
+/// Ответ `Scheduled` означает, что изменение применится после
+/// завершения текущей транзакции.
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/change-availability",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     request_body = ChangeAvailabilityRequest,
     responses(
-        (status = 200, description = "Command result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Результат: Accepted, Rejected или Scheduled", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn change_avail(
@@ -301,18 +319,24 @@ pub async fn change_avail(
     }
 }
 
-/// Trigger message from charge point
+/// Принудительный запрос сообщения от станции
+///
+/// Запрашивает немедленную отправку указанного сообщения.
+/// Поддерживаемые типы: BootNotification, Heartbeat,
+/// StatusNotification, MeterValues, DiagnosticsStatusNotification,
+/// FirmwareStatusNotification.
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/trigger-message",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     request_body = TriggerMessageRequest,
     responses(
-        (status = 200, description = "Command result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Результат: Accepted, Rejected или NotImplemented", body = ApiResponse<CommandResponse>),
+        (status = 400, description = "Неизвестный тип сообщения"),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn trigger_msg(
@@ -378,18 +402,22 @@ pub async fn trigger_msg(
     }
 }
 
-/// Get configuration from charge point
+/// Получение конфигурации станции
+///
+/// Запрашивает OCPP-конфигурацию с зарядной станции.
+/// Без параметра `keys` возвращает все параметры.
+/// Пример: `?keys=HeartbeatInterval,MeterValueSampleInterval`
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/{charge_point_id}/configuration",
     tag = "Commands",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID"),
-        ("keys" = Option<String>, Query, description = "Comma-separated list of configuration keys")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции"),
+        ("keys" = Option<String>, Query, description = "Ключи конфигурации через запятую (опционально)")
     ),
     responses(
-        (status = 200, description = "Configuration values", body = ApiResponse<ConfigurationResponse>),
-        (status = 404, description = "Charge point offline or not found")
+        (status = 200, description = "Конфигурация станции и неизвестные ключи", body = ApiResponse<ConfigurationResponse>),
+        (status = 404, description = "Станция не подключена")
     )
 )]
 pub async fn get_config(
@@ -438,24 +466,29 @@ pub async fn get_config(
     }
 }
 
-/// Query parameters for configuration
+/// Параметры запроса конфигурации
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
 pub struct ConfigurationParams {
-    /// Comma-separated list of configuration keys
+    /// Ключи конфигурации через запятую. Если не указано — вернёт все
     pub keys: Option<String>,
 }
 
-/// Configuration value
+/// Параметр конфигурации станции
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ConfigValue {
+    /// Название параметра (OCPP-ключ, напр. HeartbeatInterval)
     pub key: String,
+    /// Значение параметра (может быть null для ненастроенных)
     pub value: Option<String>,
+    /// true = только чтение, false = можно изменить
     pub readonly: bool,
 }
 
-/// Configuration response
+/// Ответ с конфигурацией станции
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct ConfigurationResponse {
+    /// Список параметров конфигурации
     pub configuration: Vec<ConfigValue>,
+    /// Ключи, которые станция не распознала
     pub unknown_keys: Vec<String>,
 }

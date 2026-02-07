@@ -17,18 +17,21 @@ pub struct TransactionAppState {
     pub storage: Arc<dyn Storage>,
 }
 
-/// List transactions for a specific charge point
+/// Транзакции конкретной станции
+///
+/// Возвращает список транзакций с фильтрацией по статусу и датам.
+/// Поддерживает пагинацию.
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/{charge_point_id}/transactions",
     tag = "Transactions",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID"),
+        ("charge_point_id" = String, Path, description = "ID зарядной станции"),
         TransactionFilter,
         PaginationParams
     ),
     responses(
-        (status = 200, description = "List of transactions", body = PaginatedResponse<TransactionDto>)
+        (status = 200, description = "Список транзакций с пагинацией", body = PaginatedResponse<TransactionDto>)
     )
 )]
 pub async fn list_transactions_for_charge_point(
@@ -99,14 +102,17 @@ pub async fn list_transactions_for_charge_point(
     }
 }
 
-/// List all transactions across all charge points
+/// Все транзакции по всем станциям
+///
+/// Возвращает все транзакции с пагинацией.
+/// Для общего обзора истории зарядок.
 #[utoipa::path(
     get,
     path = "/api/v1/transactions",
     tag = "Transactions",
     params(PaginationParams),
     responses(
-        (status = 200, description = "List of all transactions", body = PaginatedResponse<TransactionDto>)
+        (status = 200, description = "Список всех транзакций с пагинацией", body = PaginatedResponse<TransactionDto>)
     )
 )]
 pub async fn list_all_transactions(
@@ -134,17 +140,20 @@ pub async fn list_all_transactions(
     }
 }
 
-/// Get transaction by ID
+/// Получение транзакции по ID
+///
+/// Возвращает полную информацию о транзакции:
+/// показания счётчика, потреблённая энергия, время, статус.
 #[utoipa::path(
     get,
     path = "/api/v1/transactions/{id}",
     tag = "Transactions",
     params(
-        ("id" = i32, Path, description = "Transaction ID")
+        ("id" = i32, Path, description = "ID транзакции")
     ),
     responses(
-        (status = 200, description = "Transaction details", body = ApiResponse<TransactionDto>),
-        (status = 404, description = "Transaction not found")
+        (status = 200, description = "Полная информация о транзакции", body = ApiResponse<TransactionDto>),
+        (status = 404, description = "Транзакция не найдена")
     )
 )]
 pub async fn get_transaction(
@@ -164,16 +173,19 @@ pub async fn get_transaction(
     }
 }
 
-/// Get active transactions for a charge point
+/// Активные транзакции станции
+///
+/// Возвращает только текущие (незавершённые) зарядные сессии.
+/// Используйте для получения `transaction_id` перед RemoteStop.
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/{charge_point_id}/transactions/active",
     tag = "Transactions",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     responses(
-        (status = 200, description = "Active transactions", body = ApiResponse<Vec<TransactionDto>>)
+        (status = 200, description = "Список активных транзакций", body = ApiResponse<Vec<TransactionDto>>)
     )
 )]
 pub async fn get_active_transactions(
@@ -204,29 +216,32 @@ pub async fn get_active_transactions(
     }
 }
 
-/// Transaction statistics
+/// Статистика транзакций станции
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct TransactionStats {
-    /// Total number of transactions
+    /// Общее количество транзакций для этой станции
     pub total: u32,
-    /// Number of active (ongoing) transactions
+    /// Количество активных (текущих) зарядок
     pub active: u32,
-    /// Number of completed transactions
+    /// Количество завершённых зарядок
     pub completed: u32,
-    /// Total energy delivered in kWh
+    /// Общая отданная энергия в кВт·ч (округлено до 2 знаков)
     pub total_energy_kwh: f64,
 }
 
-/// Get transaction statistics for a charge point
+/// Статистика транзакций станции
+///
+/// Возвращает: общее количество, активные, завершённые
+/// и общую отданную энергию (кВт·ч).
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/{charge_point_id}/transactions/stats",
     tag = "Transactions",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
     responses(
-        (status = 200, description = "Transaction statistics", body = ApiResponse<TransactionStats>)
+        (status = 200, description = "Статистика: total, active, completed, energy", body = ApiResponse<TransactionStats>)
     )
 )]
 pub async fn get_transaction_stats(

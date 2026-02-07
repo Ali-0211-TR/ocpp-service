@@ -19,13 +19,17 @@ pub struct AppState {
     pub session_manager: SharedSessionManager,
 }
 
-/// Get all charge points
+/// Список всех зарядных станций
+///
+/// Возвращает полный список станций с информацией
+/// о коннекторах и текущем онлайн-статусе.
+/// Станции регистрируются автоматически при первом WebSocket-подключении.
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points",
     tag = "Charge Points",
     responses(
-        (status = 200, description = "List of charge points", body = ApiResponse<Vec<ChargePointDto>>)
+        (status = 200, description = "Список всех зарядных станций", body = ApiResponse<Vec<ChargePointDto>>)
     ),
     security(
         ("bearer_auth" = []),
@@ -55,17 +59,20 @@ pub async fn list_charge_points(
     }
 }
 
-/// Get charge point by ID
+/// Получение станции по ID
+///
+/// Возвращает полную информацию о станции включая
+/// вендора, модель, прошивку, список коннекторов и их статусы.
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/{charge_point_id}",
     tag = "Charge Points",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "Уникальный идентификатор станции")
     ),
     responses(
-        (status = 200, description = "Charge point details", body = ApiResponse<ChargePointDto>),
-        (status = 404, description = "Charge point not found")
+        (status = 200, description = "Полная информация о станции", body = ApiResponse<ChargePointDto>),
+        (status = 404, description = "Станция не найдена")
     ),
     security(
         ("bearer_auth" = []),
@@ -95,17 +102,20 @@ pub async fn get_charge_point(
     }
 }
 
-/// Delete charge point
+/// Удаление зарядной станции
+///
+/// Полностью удаляет станцию из системы.
+/// Не удаляет связанные транзакции — они сохраняются для истории.
 #[utoipa::path(
     delete,
     path = "/api/v1/charge-points/{charge_point_id}",
     tag = "Charge Points",
     params(
-        ("charge_point_id" = String, Path, description = "Charge point ID")
+        ("charge_point_id" = String, Path, description = "ID станции для удаления")
     ),
     responses(
-        (status = 200, description = "Charge point deleted"),
-        (status = 404, description = "Charge point not found")
+        (status = 200, description = "Станция успешно удалена"),
+        (status = 404, description = "Станция не найдена")
     ),
     security(
         ("bearer_auth" = []),
@@ -125,13 +135,16 @@ pub async fn delete_charge_point(
     }
 }
 
-/// Get charge point statistics
+/// Статистика по станциям
+///
+/// Возвращает общее количество станций, онлайн, офлайн и заряжающих.
+/// Используйте для дашборда.
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/stats",
     tag = "Charge Points",
     responses(
-        (status = 200, description = "Charge point statistics", body = ApiResponse<ChargePointStats>)
+        (status = 200, description = "Статистика: total, online, offline, charging", body = ApiResponse<ChargePointStats>)
     ),
     security(
         ("bearer_auth" = []),
@@ -178,13 +191,16 @@ pub async fn get_charge_point_stats(
     }
 }
 
-/// Get online charge point IDs
+/// Список онлайн-станций
+///
+/// Возвращает массив ID станций, которые сейчас подключены
+/// по WebSocket. Лёгкий эндпойнт для быстрой проверки.
 #[utoipa::path(
     get,
     path = "/api/v1/charge-points/online",
     tag = "Charge Points",
     responses(
-        (status = 200, description = "List of online charge point IDs", body = ApiResponse<Vec<String>>)
+        (status = 200, description = "Массив ID онлайн-станций", body = ApiResponse<Vec<String>>)
     ),
     security(
         ("bearer_auth" = []),

@@ -21,19 +21,33 @@ pub struct IdTagHandlerState {
     pub db: sea_orm::DatabaseConnection,
 }
 
-/// IdTag DTO for API responses
+/// RFID-карта / токен авторизации (IdTag)
+///
+/// Используется для авторизации на зарядных станциях.
+/// Может быть RFID-картой, мобильным токеном и т.д.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct IdTagDto {
+    /// Значение токена (номер RFID-карты)
     pub id_tag: String,
+    /// Родительский токен для групповой авторизации
     pub parent_id_tag: Option<String>,
+    /// Статус: `Accepted`, `Blocked`, `Expired`, `Invalid`, `ConcurrentTx`
     pub status: String,
+    /// ID пользователя-владельца
     pub user_id: Option<String>,
+    /// Отображаемое имя (напр. "Карта Иванова")
     pub name: Option<String>,
+    /// Дата истечения (ISO 8601)
     pub expiry_date: Option<String>,
+    /// Максимум одновременных транзакций
     pub max_active_transactions: Option<i32>,
+    /// Активен ли токен
     pub is_active: bool,
+    /// Дата создания (ISO 8601)
     pub created_at: String,
+    /// Дата последнего обновления (ISO 8601)
     pub updated_at: String,
+    /// Последнее использование на станции (ISO 8601)
     pub last_used_at: Option<String>,
 }
 
@@ -55,28 +69,28 @@ impl From<id_tag::Model> for IdTagDto {
     }
 }
 
-/// Create IdTag request
+/// Запрос на создание IdTag
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "id_tag": "RFID001234567890",
-    "name": "John's Card",
+    "name": "Карта Иванова",
     "status": "Accepted"
 }))]
 pub struct CreateIdTagRequest {
-    /// The ID tag value (RFID card number)
+    /// Значение токена (номер RFID-карты, уникальный)
     pub id_tag: String,
-    /// Parent ID tag for group authorization
+    /// Родительский токен для групповой авторизации (OCPP parentIdTag)
     pub parent_id_tag: Option<String>,
-    /// Status: Accepted, Blocked, Expired, Invalid
+    /// Статус: `Accepted`, `Blocked`, `Expired`, `Invalid`. По умолчанию `Accepted`
     #[serde(default = "default_status")]
     pub status: String,
-    /// User ID to associate with this tag
+    /// ID пользователя-владельца карты
     pub user_id: Option<String>,
-    /// Display name
+    /// Отображаемое имя
     pub name: Option<String>,
-    /// Expiry date (ISO 8601 format)
+    /// Дата истечения срока действия (ISO 8601)
     pub expiry_date: Option<String>,
-    /// Maximum active transactions allowed
+    /// Максимум одновременных активных транзакций
     pub max_active_transactions: Option<i32>,
 }
 
@@ -84,38 +98,40 @@ fn default_status() -> String {
     "Accepted".to_string()
 }
 
-/// Update IdTag request
+/// Запрос на обновление IdTag
+///
+/// Все поля опциональны — передайте только изменяемые.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateIdTagRequest {
-    /// Parent ID tag
+    /// Родительский токен
     pub parent_id_tag: Option<String>,
-    /// Status: Accepted, Blocked, Expired, Invalid
+    /// Новый статус: `Accepted`, `Blocked`, `Expired`, `Invalid`
     pub status: Option<String>,
-    /// User ID
+    /// ID пользователя
     pub user_id: Option<String>,
-    /// Display name
+    /// Отображаемое имя
     pub name: Option<String>,
-    /// Expiry date (ISO 8601 format)
+    /// Дата истечения (ISO 8601)
     pub expiry_date: Option<String>,
-    /// Maximum active transactions
+    /// Максимум одновременных транзакций
     pub max_active_transactions: Option<i32>,
-    /// Whether the tag is active
+    /// Активен ли токен
     pub is_active: Option<bool>,
 }
 
-/// List IdTags query parameters
+/// Параметры фильтрации списка IdTags
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListIdTagsParams {
-    /// Filter by status
+    /// Фильтр по статусу: `Accepted`, `Blocked`, `Expired`, `Invalid`
     pub status: Option<String>,
-    /// Filter by active status
+    /// Фильтр по активности
     pub is_active: Option<bool>,
-    /// Filter by user ID
+    /// Фильтр по ID пользователя-владельца
     pub user_id: Option<String>,
-    /// Page number (1-based)
+    /// Номер страницы (1-based). По умолчанию 1
     #[serde(default = "default_page")]
     pub page: u64,
-    /// Items per page
+    /// Количество элементов на страницу. По умолчанию 20
     #[serde(default = "default_page_size")]
     pub page_size: u64,
 }
@@ -139,7 +155,10 @@ fn parse_status(s: &str) -> IdTagStatus {
     }
 }
 
-/// List all IdTags
+/// Список всех IdTag
+///
+/// Возвращает список RFID-карт/токенов с фильтрацией и пагинацией.
+/// Сортировка по дате создания (новые сверху).
 #[utoipa::path(
     get,
     path = "/api/v1/id-tags",
@@ -147,8 +166,8 @@ fn parse_status(s: &str) -> IdTagStatus {
     security(("bearer_auth" = [])),
     params(ListIdTagsParams),
     responses(
-        (status = 200, description = "List of IdTags", body = PaginatedResponse<IdTagDto>),
-        (status = 401, description = "Not authenticated")
+        (status = 200, description = "Список IdTag с пагинацией", body = PaginatedResponse<IdTagDto>),
+        (status = 401, description = "Не авторизован")
     )
 )]
 pub async fn list_id_tags(
@@ -194,18 +213,18 @@ pub async fn list_id_tags(
     Ok(Json(PaginatedResponse::new(items, total, page, page_size)))
 }
 
-/// Get a specific IdTag
+/// Получение IdTag по значению
 #[utoipa::path(
     get,
     path = "/api/v1/id-tags/{id_tag}",
     tag = "IdTags",
     security(("bearer_auth" = [])),
     params(
-        ("id_tag" = String, Path, description = "The ID tag value")
+        ("id_tag" = String, Path, description = "Значение IdTag (номер RFID-карты)")
     ),
     responses(
-        (status = 200, description = "IdTag details", body = ApiResponse<IdTagDto>),
-        (status = 404, description = "IdTag not found")
+        (status = 200, description = "Полная информация о токене", body = ApiResponse<IdTagDto>),
+        (status = 404, description = "IdTag не найден")
     )
 )]
 pub async fn get_id_tag(
@@ -223,7 +242,10 @@ pub async fn get_id_tag(
     }
 }
 
-/// Create a new IdTag
+/// Создание нового IdTag
+///
+/// Значение `id_tag` должно быть уникальным.
+/// По умолчанию статус `Accepted`.
 #[utoipa::path(
     post,
     path = "/api/v1/id-tags",
@@ -231,9 +253,9 @@ pub async fn get_id_tag(
     security(("bearer_auth" = [])),
     request_body = CreateIdTagRequest,
     responses(
-        (status = 201, description = "IdTag created", body = ApiResponse<IdTagDto>),
-        (status = 400, description = "Invalid request"),
-        (status = 409, description = "IdTag already exists")
+        (status = 201, description = "IdTag успешно создан", body = ApiResponse<IdTagDto>),
+        (status = 400, description = "Ошибка валидации (пустой id_tag)"),
+        (status = 409, description = "IdTag с таким значением уже существует")
     )
 )]
 pub async fn create_id_tag(
@@ -293,19 +315,21 @@ pub async fn create_id_tag(
     Ok((StatusCode::CREATED, Json(ApiResponse::success(IdTagDto::from(created)))))
 }
 
-/// Update an IdTag
+/// Обновление IdTag
+///
+/// Обновляет только переданные поля (partial update).
 #[utoipa::path(
     put,
     path = "/api/v1/id-tags/{id_tag}",
     tag = "IdTags",
     security(("bearer_auth" = [])),
     params(
-        ("id_tag" = String, Path, description = "The ID tag value")
+        ("id_tag" = String, Path, description = "Значение IdTag")
     ),
     request_body = UpdateIdTagRequest,
     responses(
-        (status = 200, description = "IdTag updated", body = ApiResponse<IdTagDto>),
-        (status = 404, description = "IdTag not found")
+        (status = 200, description = "IdTag успешно обновлён", body = ApiResponse<IdTagDto>),
+        (status = 404, description = "IdTag не найден")
     )
 )]
 pub async fn update_id_tag(
@@ -364,18 +388,21 @@ pub async fn update_id_tag(
     Ok(Json(ApiResponse::success(IdTagDto::from(updated))))
 }
 
-/// Delete an IdTag
+/// Удаление IdTag
+///
+/// Полностью удаляет токен из системы. Необратимо.
+/// Альтернатива: используйте block для временной блокировки.
 #[utoipa::path(
     delete,
     path = "/api/v1/id-tags/{id_tag}",
     tag = "IdTags",
     security(("bearer_auth" = [])),
     params(
-        ("id_tag" = String, Path, description = "The ID tag value")
+        ("id_tag" = String, Path, description = "Значение IdTag для удаления")
     ),
     responses(
-        (status = 200, description = "IdTag deleted"),
-        (status = 404, description = "IdTag not found")
+        (status = 200, description = "IdTag успешно удалён"),
+        (status = 404, description = "IdTag не найден")
     )
 )]
 pub async fn delete_id_tag(
@@ -394,18 +421,21 @@ pub async fn delete_id_tag(
     Ok(Json(ApiResponse::success(())))
 }
 
-/// Block an IdTag
+/// Блокировка IdTag
+///
+/// Устанавливает статус `Blocked`. Станции будут отклонять
+/// авторизацию по этому токену.
 #[utoipa::path(
     post,
     path = "/api/v1/id-tags/{id_tag}/block",
     tag = "IdTags",
     security(("bearer_auth" = [])),
     params(
-        ("id_tag" = String, Path, description = "The ID tag value")
+        ("id_tag" = String, Path, description = "Значение IdTag")
     ),
     responses(
-        (status = 200, description = "IdTag blocked", body = ApiResponse<IdTagDto>),
-        (status = 404, description = "IdTag not found")
+        (status = 200, description = "IdTag заблокирован", body = ApiResponse<IdTagDto>),
+        (status = 404, description = "IdTag не найден")
     )
 )]
 pub async fn block_id_tag(
@@ -433,18 +463,21 @@ pub async fn block_id_tag(
     Ok(Json(ApiResponse::success(IdTagDto::from(updated))))
 }
 
-/// Unblock an IdTag
+/// Разблокировка IdTag
+///
+/// Восстанавливает статус `Accepted`.
+/// Токен снова может использоваться для авторизации.
 #[utoipa::path(
     post,
     path = "/api/v1/id-tags/{id_tag}/unblock",
     tag = "IdTags",
     security(("bearer_auth" = [])),
     params(
-        ("id_tag" = String, Path, description = "The ID tag value")
+        ("id_tag" = String, Path, description = "Значение IdTag")
     ),
     responses(
-        (status = 200, description = "IdTag unblocked", body = ApiResponse<IdTagDto>),
-        (status = 404, description = "IdTag not found")
+        (status = 200, description = "IdTag разблокирован", body = ApiResponse<IdTagDto>),
+        (status = 404, description = "IdTag не найден")
     )
 )]
 pub async fn unblock_id_tag(

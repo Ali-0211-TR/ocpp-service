@@ -3,89 +3,102 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Remote start transaction request
+/// Запрос на удалённый запуск зарядки (RemoteStartTransaction)
+///
+/// Отправляет команду на станцию для начала зарядной сессии.
+/// Станция должна быть онлайн.
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "id_tag": "RFID001",
     "connector_id": 1
 }))]
 pub struct RemoteStartRequest {
-    /// RFID tag or identifier for authorization
+    /// RFID-карта или токен авторизации. Должен существовать в списке IdTags со статусом Accepted
     pub id_tag: String,
-    /// Optional connector ID (1-based)
+    /// Номер коннектора (1-based). Если не указан, станция выберет сама
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connector_id: Option<u32>,
 }
 
-/// Remote stop transaction request
+/// Запрос на удалённую остановку зарядки (RemoteStopTransaction)
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "transaction_id": 123
 }))]
 pub struct RemoteStopRequest {
-    /// Transaction ID to stop
+    /// ID активной транзакции для остановки. Получить можно из списка активных транзакций
     pub transaction_id: i32,
 }
 
-/// Reset request
+/// Запрос на перезагрузку станции (Reset)
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "type": "Soft"
 }))]
 pub struct ResetRequest {
-    /// Reset type: "Soft" or "Hard"
+    /// Тип перезагрузки: `Soft` (мягкая, дождаться завершения транзакций) или `Hard` (принудительная, немедленная)
     #[serde(rename = "type")]
     pub reset_type: String,
 }
 
-/// Unlock connector request
+/// Запрос на разблокировку коннектора (UnlockConnector)
+///
+/// Используется когда кабель застрял или нужно принудительно освободить разъём.
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "connector_id": 1
 }))]
 pub struct UnlockConnectorRequest {
-    /// Connector ID to unlock (1-based)
+    /// Номер коннектора для разблокировки (1-based)
     pub connector_id: u32,
 }
 
-/// Change availability request
+/// Запрос на изменение доступности коннектора (ChangeAvailability)
+///
+/// connector_id = 0 меняет доступность всей станции.
+/// Ответ может быть `Accepted`, `Rejected` или `Scheduled`
+/// (если идёт активная транзакция — изменение применится после её завершения).
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "connector_id": 0,
     "type": "Operative"
 }))]
 pub struct ChangeAvailabilityRequest {
-    /// Connector ID (0 = entire charge point)
+    /// Номер коннектора (0 = вся станция, ≥1 = конкретный разъём)
     pub connector_id: u32,
-    /// Availability type: "Operative" or "Inoperative"
+    /// Тип доступности: `Operative` (доступен) или `Inoperative` (недоступен, обслуживание)
     #[serde(rename = "type")]
     pub availability_type: String,
 }
 
-/// Trigger message request
+/// Запрос на принудительную отправку сообщения (TriggerMessage)
+///
+/// Запрашивает у станции немедленную отправку указанного сообщения.
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "message": "StatusNotification",
     "connector_id": 1
 }))]
 pub struct TriggerMessageRequest {
-    /// Message type: "BootNotification", "Heartbeat", "StatusNotification", etc.
+    /// Тип сообщения: `BootNotification`, `Heartbeat`, `StatusNotification`, `MeterValues`, `DiagnosticsStatusNotification`, `FirmwareStatusNotification`
     pub message: String,
-    /// Optional connector ID
+    /// Номер коннектора (нужен для StatusNotification и MeterValues)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connector_id: Option<u32>,
 }
 
-/// Command response
+/// Ответ на OCPP-команду
+///
+/// Содержит статус от зарядной станции и описание результата.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(example = json!({
     "status": "Accepted",
-    "message": "Command sent successfully"
+    "message": "Команда принята станцией"
 }))]
 pub struct CommandResponse {
-    /// Response status from charge point
+    /// Статус от станции: `Accepted`, `Rejected`, `NotSupported`, `NotImplemented`, `Scheduled` и др.
     pub status: String,
-    /// Optional message
+    /// Описание результата выполнения
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }

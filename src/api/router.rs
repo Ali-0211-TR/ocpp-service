@@ -200,20 +200,56 @@ impl Modify for SecurityAddon {
     ),
     modifiers(&SecurityAddon),
     tags(
-        (name = "Health", description = "Health check endpoints"),
-        (name = "Auth", description = "Authentication and user management"),
-        (name = "API Keys", description = "API key management"),
-        (name = "IdTags", description = "RFID card/token management"),
-        (name = "Tariffs", description = "Billing tariff management"),
-        (name = "Charge Points", description = "Charge point management"),
-        (name = "Monitoring", description = "Real-time monitoring and heartbeat status"),
-        (name = "Commands", description = "Remote commands to charge points"),
-        (name = "Transactions", description = "Transaction management"),
+        (name = "Health", description = "Проверка состояния сервера. Используйте для health-check мониторинга (uptime, ping, readiness)."),
+        (name = "Authentication", description = "Аутентификация пользователей: вход (JWT), регистрация, смена пароля. Токен возвращается в поле `token` и передаётся в заголовке `Authorization: Bearer <token>`."),
+        (name = "API Keys", description = "Управление API-ключами для программного доступа. Ключ отображается **один раз** при создании. Передаётся в заголовке `X-API-Key`."),
+        (name = "IdTags", description = "Управление RFID-картами и токенами авторизации (OCPP IdTag). Статусы: `Accepted`, `Blocked`, `Expired`, `Invalid`, `ConcurrentTx`. Используется при авторизации зарядных сессий."),
+        (name = "Tariffs", description = "Управление тарифами для биллинга. Типы: `PerKwh` (за кВт·ч), `PerMinute` (за минуту), `PerSession` (за сессию), `Combined` (комбинированный). Цены хранятся в наименьших единицах валюты (тийин/копейка)."),
+        (name = "Charge Points", description = "CRUD-операции для зарядных станций (Charge Points). Станции регистрируются автоматически при первом подключении через OCPP WebSocket (BootNotification). Поле `is_online` отражает текущее WebSocket-соединение."),
+        (name = "Monitoring", description = "Мониторинг зарядных станций в реальном времени: heartbeat-статусы, статистика подключений, список онлайн-станций. Heartbeat проверяется каждые 60 секунд, порог оффлайна — 180 секунд."),
+        (name = "Commands", description = "Отправка OCPP 1.6 команд на зарядные станции через WebSocket. Все команды требуют, чтобы станция была онлайн (подключена через WebSocket). Ответы возвращают статус от станции: `Accepted`, `Rejected`, `NotImplemented` и т.д."),
+        (name = "Transactions", description = "Управление зарядными сессиями (транзакциями). Транзакция создаётся при StartTransaction и завершается при StopTransaction. Статусы: `Active` (идёт зарядка), `Completed` (завершена), `Failed` (ошибка)."),
+        (name = "WebSocket Notifications", description = "Real-time уведомления через WebSocket. Подключение: `ws://host:port/api/v1/notifications/ws`. Поддерживается фильтрация по `charge_point_id` и `event_types` через query-параметры. События: `charge_point_connected`, `charge_point_disconnected`, `charge_point_status_changed`, `connector_status_changed`, `transaction_started`, `transaction_stopped`, `meter_values_received`, `heartbeat_received`, `authorization_result`, `boot_notification`, `error`."),
     ),
     info(
-        title = "OCPP Central System API",
+        title = "Texnouz OCPP Central System API",
         version = "1.0.0",
-        description = "REST API for managing OCPP 1.6 charge points and transactions",
+        description = "REST API для управления OCPP 1.6 зарядными станциями (Charge Points).
+
+## Архитектура
+
+Система состоит из двух серверов:
+- **REST API** (по умолчанию порт 8080) — управление станциями, пользователями, тарифами, транзакциями
+- **OCPP WebSocket** (по умолчанию порт 9000) — протокол связи со станциями по адресу `ws://host:9000/ocpp/{charge_point_id}`
+
+## Аутентификация
+
+Поддерживается два способа:
+1. **JWT Bearer Token** — получите токен через `POST /api/v1/auth/login`, передавайте в заголовке `Authorization: Bearer <token>`
+2. **API Key** — создайте ключ через `POST /api/v1/api-keys`, передавайте в заголовке `X-API-Key: <key>`
+
+## Real-time уведомления
+
+Подключитесь к WebSocket `ws://host:port/api/v1/notifications/ws` для получения событий в реальном времени.
+Поддерживаемые query-параметры:
+- `charge_point_id` — фильтр по ID станции
+- `event_types` — фильтр по типам событий (через запятую)
+
+## Формат ответов
+
+Все REST-ответы обёрнуты в стандартную оболочку:
+```json
+{\"success\": true, \"data\": {...}, \"error\": null}
+```
+
+При ошибке:
+```json
+{\"success\": false, \"data\": null, \"error\": \"описание ошибки\"}
+```
+
+## Пагинация
+
+Эндпоинты со списками поддерживают параметры `page` (от 1) и `limit` (по умолчанию 50).",
         license(
             name = "MIT"
         ),

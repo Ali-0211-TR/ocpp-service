@@ -6,7 +6,10 @@ use utoipa::ToSchema;
 
 use crate::domain::{Transaction, TransactionStatus};
 
-/// Transaction response DTO
+/// Зарядная сессия (транзакция)
+///
+/// Создаётся автоматически при получении StartTransaction от станции.
+/// Завершается при StopTransaction или RemoteStopTransaction.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(example = json!({
     "id": 1,
@@ -22,19 +25,30 @@ use crate::domain::{Transaction, TransactionStatus};
     "stop_reason": "Local"
 }))]
 pub struct TransactionDto {
+    /// Уникальный ID транзакции (автоинкремент)
     pub id: i32,
+    /// ID зарядной станции
     pub charge_point_id: String,
+    /// Номер коннектора (1-based)
     pub connector_id: u32,
+    /// RFID-карта/токен, которым была начата сессия
     pub id_tag: String,
+    /// Показания счётчика на начало сессии (Вт·ч)
     pub meter_start: i32,
+    /// Показания счётчика на конец сессии (Вт·ч). null если сессия активна
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meter_stop: Option<i32>,
+    /// Потреблённая энергия в Вт·ч (meter_stop - meter_start). null если сессия активна
     #[serde(skip_serializing_if = "Option::is_none")]
     pub energy_consumed_wh: Option<i32>,
+    /// Статус: `Active` (зарядка идёт), `Completed` (завершена), `Failed` (ошибка)
     pub status: String,
+    /// Время начала зарядки (UTC, ISO 8601)
     pub started_at: DateTime<Utc>,
+    /// Время окончания зарядки (UTC, ISO 8601). null если сессия активна
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stopped_at: Option<DateTime<Utc>>,
+    /// Причина остановки: `Local`, `Remote`, `EmergencyStop`, `EVDisconnected`, `PowerLoss` и др.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
 }
@@ -67,15 +81,15 @@ fn transaction_status_to_string(status: &TransactionStatus) -> String {
     .to_string()
 }
 
-/// Filter parameters for transactions
+/// Фильтры для списка транзакций
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 pub struct TransactionFilter {
-    /// Filter by charge point ID
+    /// Фильтр по ID зарядной станции
     pub charge_point_id: Option<String>,
-    /// Filter by status (active, completed, failed)
+    /// Фильтр по статусу: `active`, `completed`, `failed`
     pub status: Option<String>,
-    /// Filter transactions started after this date
+    /// Начальная дата фильтра (ISO 8601, напр. `2024-01-01T00:00:00Z`)
     pub from_date: Option<DateTime<Utc>>,
-    /// Filter transactions started before this date
+    /// Конечная дата фильтра (ISO 8601)
     pub to_date: Option<DateTime<Utc>>,
 }

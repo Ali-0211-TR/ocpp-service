@@ -18,37 +18,50 @@ pub struct MonitoringState {
     pub heartbeat_monitor: Arc<HeartbeatMonitor>,
 }
 
-/// Heartbeat status DTO
+/// Статус heartbeat зарядной станции
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HeartbeatStatusDto {
+    /// ID зарядной станции
     pub charge_point_id: String,
+    /// Время последнего heartbeat-сообщения (ISO 8601)
     #[schema(example = "2026-02-06T10:30:00Z")]
     pub last_heartbeat: Option<String>,
+    /// Время последней активности (любое сообщение, ISO 8601)
     #[schema(example = "2026-02-06T10:30:05Z")]
     pub last_seen: Option<String>,
+    /// Подключена ли станция по WebSocket сейчас
     pub is_connected: bool,
+    /// Статус: `Online`, `Offline`, `Stale` (нет heartbeat дольше порога)
     #[schema(example = "Online")]
     pub status: String,
+    /// Секунд с последнего heartbeat
     #[schema(example = 30)]
     pub seconds_since_heartbeat: Option<i64>,
 }
 
-/// Connection stats DTO
+/// Статистика подключений
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ConnectionStatsDto {
+    /// Общее количество известных станций
     pub total: usize,
+    /// Подключенные сейчас
     pub online: usize,
+    /// Отключенные
     pub offline: usize,
+    /// Подключены, но не присылают heartbeat в срок
     pub stale: usize,
 }
 
-/// Get heartbeat status for all charge points
+/// Статусы heartbeat всех станций
+///
+/// Возвращает время последнего heartbeat, статус соединения
+/// и время с последней активности для каждой станции.
 #[utoipa::path(
     get,
     path = "/api/v1/monitoring/heartbeats",
     responses(
-        (status = 200, description = "List of heartbeat statuses", body = ApiResponse<Vec<HeartbeatStatusDto>>),
-        (status = 401, description = "Unauthorized")
+        (status = 200, description = "Список статусов heartbeat", body = ApiResponse<Vec<HeartbeatStatusDto>>),
+        (status = 401, description = "Не авторизован")
     ),
     security(
         ("bearer_auth" = []),
@@ -78,13 +91,16 @@ pub async fn get_heartbeat_statuses(
     }
 }
 
-/// Get connection statistics
+/// Статистика подключений
+///
+/// Общая сводка: total, online, offline, stale.
+/// Используйте для виджета мониторинга на дашборде.
 #[utoipa::path(
     get,
     path = "/api/v1/monitoring/stats",
     responses(
-        (status = 200, description = "Connection statistics", body = ApiResponse<ConnectionStatsDto>),
-        (status = 401, description = "Unauthorized")
+        (status = 200, description = "Статистика подключений", body = ApiResponse<ConnectionStatsDto>),
+        (status = 401, description = "Не авторизован")
     ),
     security(
         ("bearer_auth" = []),
@@ -109,13 +125,15 @@ pub async fn get_connection_stats(
     }
 }
 
-/// Get list of currently online charge points
+/// Список онлайн-станций (мониторинг)
+///
+/// Возвращает ID станций, которые сейчас подключены по WebSocket.
 #[utoipa::path(
     get,
     path = "/api/v1/monitoring/online",
     responses(
-        (status = 200, description = "List of online charge point IDs", body = ApiResponse<Vec<String>>),
-        (status = 401, description = "Unauthorized")
+        (status = 200, description = "Массив ID онлайн-станций", body = ApiResponse<Vec<String>>),
+        (status = 401, description = "Не авторизован")
     ),
     security(
         ("bearer_auth" = []),

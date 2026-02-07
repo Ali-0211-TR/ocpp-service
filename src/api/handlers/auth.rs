@@ -21,20 +21,23 @@ pub struct AuthHandlerState {
     pub jwt_config: JwtConfig,
 }
 
-/// Login request
+/// Запрос на авторизацию
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "username": "admin",
     "password": "secret123"
 }))]
 pub struct LoginRequest {
-    /// Username or email
+    /// Имя пользователя или email
     pub username: String,
-    /// Password
+    /// Пароль
     pub password: String,
 }
 
-/// Login response
+/// Ответ на успешную авторизацию
+///
+/// Содержит JWT-токен для последующих запросов.
+/// Токен передаётся в заголовке `Authorization: Bearer <token>`
 #[derive(Debug, Serialize, ToSchema)]
 #[schema(example = json!({
     "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -48,26 +51,30 @@ pub struct LoginRequest {
     }
 }))]
 pub struct LoginResponse {
-    /// JWT access token
+    /// JWT access-токен для авторизации. Передавайте в заголовке `Authorization: Bearer <token>`
     pub token: String,
-    /// Token type (always "Bearer")
+    /// Тип токена (всегда `Bearer`)
     pub token_type: String,
-    /// Token expiration time in seconds
+    /// Время жизни токена в секундах (по умолчанию 86400 = 24 часа)
     pub expires_in: i64,
-    /// User information
+    /// Информация о пользователе
     pub user: UserInfo,
 }
 
-/// User information
+/// Информация о пользователе
 #[derive(Debug, Serialize, ToSchema)]
 pub struct UserInfo {
+    /// Уникальный идентификатор пользователя (UUID)
     pub id: String,
+    /// Имя пользователя
     pub username: String,
+    /// Email
     pub email: String,
+    /// Роль: `admin`, `operator`, `viewer`
     pub role: String,
 }
 
-/// Register request
+/// Запрос на регистрацию нового пользователя
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "username": "newuser",
@@ -75,23 +82,27 @@ pub struct UserInfo {
     "password": "secure_password_123"
 }))]
 pub struct RegisterRequest {
-    /// Username (3-50 characters)
+    /// Имя пользователя (от 3 до 50 символов, уникальное)
     pub username: String,
-    /// Email address
+    /// Email-адрес (уникальный)
     pub email: String,
-    /// Password (min 8 characters)
+    /// Пароль (минимум 8 символов)
     pub password: String,
 }
 
-/// Login endpoint
+/// Авторизация пользователя
+///
+/// Возвращает JWT-токен при успешной аутентификации.
+/// Можно использовать как имя пользователя, так и email в поле `username`.
+/// Если аккаунт деактивирован — вернёт 401.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/login",
     tag = "Authentication",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Login successful", body = ApiResponse<LoginResponse>),
-        (status = 401, description = "Invalid credentials")
+        (status = 200, description = "Успешная авторизация, возвращает JWT-токен", body = ApiResponse<LoginResponse>),
+        (status = 401, description = "Неверные учётные данные или аккаунт деактивирован")
     )
 )]
 pub async fn login(
@@ -174,16 +185,20 @@ pub async fn login(
     Ok(Json(ApiResponse::success(response)))
 }
 
-/// Register endpoint (admin only or open registration)
+/// Регистрация нового пользователя
+///
+/// Создаёт нового пользователя с ролью `viewer` (по умолчанию).
+/// Логин и email должны быть уникальными.
+/// Пароль: минимум 8 символов. Имя: 3–50 символов.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/register",
     tag = "Authentication",
     request_body = RegisterRequest,
     responses(
-        (status = 201, description = "User created", body = ApiResponse<UserInfo>),
-        (status = 400, description = "Validation error"),
-        (status = 409, description = "Username or email already exists")
+        (status = 201, description = "Пользователь успешно создан", body = ApiResponse<UserInfo>),
+        (status = 400, description = "Ошибка валидации (короткий пароль, невалидный email и т.д.)"),
+        (status = 409, description = "Пользователь с таким логином или email уже существует")
     )
 )]
 pub async fn register(
@@ -276,7 +291,10 @@ pub async fn register(
     Ok((StatusCode::CREATED, Json(ApiResponse::success(response))))
 }
 
-/// Get current user info
+/// Получение информации о текущем пользователе
+///
+/// Возвращает данные пользователя, авторизованного по JWT-токену.
+/// Используйте для проверки авторизации и получения роли.
 #[utoipa::path(
     get,
     path = "/api/v1/auth/me",
@@ -285,8 +303,8 @@ pub async fn register(
         ("bearer_auth" = [])
     ),
     responses(
-        (status = 200, description = "Current user info", body = ApiResponse<UserInfo>),
-        (status = 401, description = "Not authenticated")
+        (status = 200, description = "Информация о текущем пользователе", body = ApiResponse<UserInfo>),
+        (status = 401, description = "Не авторизован (невалидный или отсутствующий токен)")
     )
 )]
 pub async fn get_current_user(
@@ -328,16 +346,19 @@ pub async fn get_current_user(
     Ok(Json(ApiResponse::success(response)))
 }
 
-/// Change password request
+/// Запрос на смену пароля
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ChangePasswordRequest {
-    /// Current password
+    /// Текущий пароль для подтверждения
     pub current_password: String,
-    /// New password (min 8 characters)
+    /// Новый пароль (минимум 8 символов)
     pub new_password: String,
 }
 
-/// Change password endpoint
+/// Смена пароля текущего пользователя
+///
+/// Для подтверждения операции требуется указать текущий пароль.
+/// Новый пароль должен содержать минимум 8 символов.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/change-password",
@@ -347,8 +368,9 @@ pub struct ChangePasswordRequest {
     ),
     request_body = ChangePasswordRequest,
     responses(
-        (status = 200, description = "Password changed"),
-        (status = 401, description = "Invalid current password")
+        (status = 200, description = "Пароль успешно изменён"),
+        (status = 400, description = "Новый пароль слишком короткий (менее 8 символов)"),
+        (status = 401, description = "Неверный текущий пароль или не авторизован")
     )
 )]
 pub async fn change_password(

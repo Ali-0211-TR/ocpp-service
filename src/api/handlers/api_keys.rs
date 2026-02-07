@@ -22,44 +22,59 @@ pub struct ApiKeyHandlerState {
     pub db: sea_orm::DatabaseConnection,
 }
 
-/// Create API key request
+/// Запрос на создание API-ключа
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "name": "My Integration",
     "scopes": ["charge_points:read", "transactions:read"]
 }))]
 pub struct CreateApiKeyRequest {
-    /// Name/description for the API key
+    /// Название/описание ключа (для идентификации в списке)
     pub name: String,
-    /// Scopes/permissions for this key
+    /// Права доступа (scopes). Примеры: `charge_points:read`, `charge_points:write`, `transactions:read`, `commands:execute`
     pub scopes: Vec<String>,
-    /// Optional expiration time in days
+    /// Срок действия ключа в днях. null = бессрочно
     pub expires_in_days: Option<i64>,
 }
 
-/// API key response
+/// API-ключ (ответ)
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ApiKeyResponse {
+    /// Уникальный ID ключа
     pub id: String,
+    /// Название ключа
     pub name: String,
+    /// Префикс ключа (первые 8 символов для идентификации)
     pub prefix: String,
+    /// Права доступа
     pub scopes: Vec<String>,
+    /// Активен ли ключ (false после отзыва)
     pub is_active: bool,
+    /// Дата создания (ISO 8601)
     pub created_at: String,
+    /// Дата истечения (ISO 8601). null = бессрочный
     pub expires_at: Option<String>,
+    /// Последнее использование (ISO 8601)
     pub last_used_at: Option<String>,
 }
 
-/// Created API key response (includes full key - only shown once!)
+/// Ответ при создании API-ключа
+///
+/// **ВАЖНО**: Полный ключ показывается ТОЛЬКО ОДИН РАЗ.
+/// Сохраните его сразу, позже восстановить невозможно.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreatedApiKeyResponse {
-    /// The full API key - SAVE THIS! It won't be shown again
+    /// Полный API-ключ. **Сохраните сразу** — повторно получить нельзя!
     pub key: String,
-    /// API key details
+    /// Метаданные ключа
     pub api_key: ApiKeyResponse,
 }
 
-/// Create a new API key
+/// Создание нового API-ключа
+///
+/// Генерирует новый API-ключ для программного доступа к системе.
+/// Ключ передаётся в заголовке `X-API-Key`.
+/// **Полный ключ показывается только один раз!**
 #[utoipa::path(
     post,
     path = "/api/v1/api-keys",
@@ -69,8 +84,8 @@ pub struct CreatedApiKeyResponse {
     ),
     request_body = CreateApiKeyRequest,
     responses(
-        (status = 201, description = "API key created", body = ApiResponse<CreatedApiKeyResponse>),
-        (status = 401, description = "Not authenticated")
+        (status = 201, description = "API-ключ создан. Сохраните полный ключ!", body = ApiResponse<CreatedApiKeyResponse>),
+        (status = 401, description = "Не авторизован")
     )
 )]
 pub async fn create_api_key(
@@ -128,7 +143,10 @@ pub async fn create_api_key(
     Ok((StatusCode::CREATED, Json(ApiResponse::success(response))))
 }
 
-/// List user's API keys
+/// Список API-ключей текущего пользователя
+///
+/// Возвращает все ключи пользователя (без самого секрета ключа).
+/// Показывается префикс, скопы, статус и даты.
 #[utoipa::path(
     get,
     path = "/api/v1/api-keys",
@@ -137,8 +155,8 @@ pub async fn create_api_key(
         ("bearer_auth" = [])
     ),
     responses(
-        (status = 200, description = "List of API keys", body = ApiResponse<Vec<ApiKeyResponse>>),
-        (status = 401, description = "Not authenticated")
+        (status = 200, description = "Список API-ключей (без секретов)", body = ApiResponse<Vec<ApiKeyResponse>>),
+        (status = 401, description = "Не авторизован")
     )
 )]
 pub async fn list_api_keys(
@@ -177,7 +195,10 @@ pub async fn list_api_keys(
     Ok(Json(ApiResponse::success(response)))
 }
 
-/// Revoke an API key
+/// Отзыв (деактивация) API-ключа
+///
+/// Отзывает ключ — он становится неактивным и не может быть использован для аутентификации.
+/// Операция необратима.
 #[utoipa::path(
     delete,
     path = "/api/v1/api-keys/{id}",
@@ -186,11 +207,11 @@ pub async fn list_api_keys(
         ("bearer_auth" = [])
     ),
     params(
-        ("id" = String, Path, description = "API key ID")
+        ("id" = String, Path, description = "ID API-ключа для отзыва")
     ),
     responses(
-        (status = 200, description = "API key revoked"),
-        (status = 404, description = "API key not found")
+        (status = 200, description = "API-ключ успешно отозван"),
+        (status = 404, description = "API-ключ не найден")
     )
 )]
 pub async fn revoke_api_key(
