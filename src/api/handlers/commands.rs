@@ -7,6 +7,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use chrono::Utc;
+use log::{error, info, warn};
 
 use crate::api::dto::{
     ApiResponse, ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse,
@@ -18,13 +20,17 @@ use crate::application::{
     get_local_list_version, remote_start_transaction, remote_stop_transaction, reset,
     trigger_message, unlock_connector, Availability, CommandSender, ResetKind, TriggerType,
 };
+use crate::infrastructure::Storage;
+use crate::notifications::{Event, SharedEventBus, TransactionStoppedEvent};
 use crate::session::SharedSessionManager;
 
 /// Extended application state with command sender
 #[derive(Clone)]
 pub struct CommandAppState {
+    pub storage: Arc<dyn Storage>,
     pub session_manager: SharedSessionManager,
     pub command_sender: Arc<CommandSender>,
+    pub event_bus: SharedEventBus,
 }
 
 /// Удалённый запуск зарядки
@@ -129,6 +135,67 @@ pub async fn remote_stop(
         Ok(status) => {
             let status_str = format!("{:?}", status);
             let accepted = status_str.contains("Accepted");
+
+            // If the station accepted RemoteStop, proactively stop the transaction in storage.
+            // This ensures the UI shows "Completed" immediately.
+            // If the station later sends StopTransaction with real meter values, those will
+            // overwrite these values (which is fine — more accurate data).
+            if accepted {
+                let transaction_id = request.transaction_id;
+                match state.storage.get_transaction(transaction_id).await {
+                    Ok(Some(mut tx)) if tx.is_active() => {
+                        let meter_stop = tx.meter_stop.unwrap_or(tx.meter_start);
+                        tx.stop(meter_stop, Some("RemoteStop".to_string()));
+
+                        if let Err(e) = state.storage.update_transaction(tx.clone()).await {
+                            error!(
+                                "[{}] Failed to update transaction {} after RemoteStop: {}",
+                                charge_point_id, transaction_id, e
+                            );
+                        } else {
+                            info!(
+                                "[{}] Transaction {} stopped proactively after RemoteStop accepted",
+                                charge_point_id, transaction_id
+                            );
+
+                            // Publish TransactionStopped event so frontend gets notified via WS
+                            let energy_wh = tx.energy_consumed().unwrap_or(0);
+                            state.event_bus.publish(Event::TransactionStopped(
+                                TransactionStoppedEvent {
+                                    charge_point_id: charge_point_id.clone(),
+                                    transaction_id,
+                                    id_tag: Some(tx.id_tag.clone()),
+                                    meter_stop,
+                                    energy_consumed_kwh: energy_wh as f64 / 1000.0,
+                                    total_cost: 0.0,
+                                    currency: "UZS".to_string(),
+                                    reason: Some("RemoteStop".to_string()),
+                                    timestamp: Utc::now(),
+                                },
+                            ));
+                        }
+                    }
+                    Ok(Some(_)) => {
+                        warn!(
+                            "[{}] Transaction {} already stopped, skipping proactive stop",
+                            charge_point_id, transaction_id
+                        );
+                    }
+                    Ok(None) => {
+                        warn!(
+                            "[{}] Transaction {} not found for proactive stop",
+                            charge_point_id, transaction_id
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "[{}] Failed to get transaction {} for proactive stop: {}",
+                            charge_point_id, transaction_id, e
+                        );
+                    }
+                }
+            }
+
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
                 message: if accepted {

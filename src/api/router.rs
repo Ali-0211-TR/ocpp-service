@@ -32,6 +32,7 @@ pub struct ChargePointUnifiedState {
     pub storage: Arc<dyn Storage>,
     pub session_manager: SharedSessionManager,
     pub command_sender: Arc<CommandSender>,
+    pub event_bus: SharedEventBus,
     pub auth: AuthState,
 }
 
@@ -49,8 +50,10 @@ impl FromRef<ChargePointUnifiedState> for charge_points::AppState {
 impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
     fn from_ref(s: &ChargePointUnifiedState) -> Self {
         commands::CommandAppState {
+            storage: Arc::clone(&s.storage),
             session_manager: s.session_manager.clone(),
             command_sender: Arc::clone(&s.command_sender),
+            event_bus: s.event_bus.clone(),
         }
     }
 }
@@ -130,6 +133,9 @@ impl Modify for SecurityAddon {
         charge_points::delete_charge_point,
         charge_points::get_charge_point_stats,
         charge_points::get_online_charge_points,
+        // Connectors
+        charge_points::list_connectors,
+        charge_points::get_connector,
         // Monitoring
         monitoring::get_heartbeat_statuses,
         monitoring::get_connection_stats,
@@ -215,6 +221,7 @@ impl Modify for SecurityAddon {
         (name = "IdTags", description = "Управление RFID-картами и токенами авторизации (OCPP IdTag). Статусы: `Accepted`, `Blocked`, `Expired`, `Invalid`, `ConcurrentTx`. Используется при авторизации зарядных сессий."),
         (name = "Tariffs", description = "Управление тарифами для биллинга. Типы: `PerKwh` (за кВт·ч), `PerMinute` (за минуту), `PerSession` (за сессию), `Combined` (комбинированный). Цены хранятся в наименьших единицах валюты (тийин/копейка)."),
         (name = "Charge Points", description = "CRUD-операции для зарядных станций (Charge Points). Станции регистрируются автоматически при первом подключении через OCPP WebSocket (BootNotification). Поле `is_online` отражает текущее WebSocket-соединение."),
+        (name = "Connectors", description = "Коннекторы (разъёмы) зарядных станций. Каждая станция имеет один или более коннекторов (connector_id ≥ 1). Статусы обновляются автоматически при получении StatusNotification от станции. connector_id = 0 зарезервирован для станции целиком."),
         (name = "Monitoring", description = "Мониторинг зарядных станций в реальном времени: heartbeat-статусы, статистика подключений, список онлайн-станций. Heartbeat проверяется каждые 60 секунд, порог оффлайна — 180 секунд."),
         (name = "Commands", description = "Отправка OCPP 1.6 команд на зарядные станции через WebSocket. Все команды требуют, чтобы станция была онлайн (подключена через WebSocket). Ответы возвращают статус от станции: `Accepted`, `Rejected`, `NotImplemented` и т.д."),
         (name = "Transactions", description = "Управление зарядными сессиями (транзакциями). Транзакция создаётся при StartTransaction и завершается при StopTransaction. Статусы: `Active` (идёт зарядка), `Completed` (завершена), `Failed` (ошибка)."),
@@ -291,6 +298,7 @@ pub fn create_api_router(
         storage: storage.clone(),
         session_manager: session_manager.clone(),
         command_sender,
+        event_bus: event_bus.clone(),
         auth: middleware_state.clone(),
     };
 
@@ -304,6 +312,9 @@ pub fn create_api_router(
         .route("/online", get(charge_points::get_online_charge_points))
         // Combine GET + DELETE on the same path in a single .route() call
         .route("/{charge_point_id}", get(charge_points::get_charge_point).delete(charge_points::delete_charge_point))
+        // --- Connectors (uses State<AppState> via FromRef) ---
+        .route("/{charge_point_id}/connectors", get(charge_points::list_connectors))
+        .route("/{charge_point_id}/connectors/{connector_id}", get(charge_points::get_connector))
         // --- Commands (uses State<CommandAppState> via FromRef) ---
         .route("/{charge_point_id}/remote-start", post(commands::remote_start))
         .route("/{charge_point_id}/remote-stop", post(commands::remote_stop))

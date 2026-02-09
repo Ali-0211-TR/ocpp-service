@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 
-use crate::api::dto::{ApiResponse, ChargePointDto, ChargePointStats};
+use crate::api::dto::{ApiResponse, ChargePointDto, ChargePointStats, ConnectorDto};
 use crate::infrastructure::Storage;
 use crate::session::SharedSessionManager;
 
@@ -212,4 +212,106 @@ pub async fn get_online_charge_points(
 ) -> Json<ApiResponse<Vec<String>>> {
     let online_ids = state.session_manager.connected_ids();
     Json(ApiResponse::success(online_ids))
+}
+
+/// Список коннекторов станции
+///
+/// Возвращает все коннекторы (разъёмы) указанной станции
+/// с их текущими статусами и кодами ошибок.
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/connectors",
+    tag = "Connectors",
+    params(
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
+    ),
+    responses(
+        (status = 200, description = "Список коннекторов станции", body = ApiResponse<Vec<ConnectorDto>>),
+        (status = 404, description = "Станция не найдена")
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
+)]
+pub async fn list_connectors(
+    State(state): State<AppState>,
+    Path(charge_point_id): Path<String>,
+) -> Result<Json<ApiResponse<Vec<ConnectorDto>>>, (StatusCode, Json<ApiResponse<Vec<ConnectorDto>>>)>
+{
+    match state.storage.get_charge_point(&charge_point_id).await {
+        Ok(Some(cp)) => {
+            let connectors: Vec<ConnectorDto> = cp
+                .connectors
+                .into_iter()
+                .map(ConnectorDto::from_domain)
+                .collect();
+            Ok(Json(ApiResponse::success(connectors)))
+        }
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' not found",
+                charge_point_id
+            ))),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Получение коннектора по ID
+///
+/// Возвращает информацию о конкретном коннекторе (разъёме) станции.
+/// connector_id — номер физического разъёма (1-based).
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/connectors/{connector_id}",
+    tag = "Connectors",
+    params(
+        ("charge_point_id" = String, Path, description = "ID зарядной станции"),
+        ("connector_id" = u32, Path, description = "Номер коннектора (1-based)")
+    ),
+    responses(
+        (status = 200, description = "Информация о коннекторе", body = ApiResponse<ConnectorDto>),
+        (status = 404, description = "Станция или коннектор не найдены")
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    ),
+)]
+pub async fn get_connector(
+    State(state): State<AppState>,
+    Path((charge_point_id, connector_id)): Path<(String, u32)>,
+) -> Result<Json<ApiResponse<ConnectorDto>>, (StatusCode, Json<ApiResponse<ConnectorDto>>)> {
+    match state.storage.get_charge_point(&charge_point_id).await {
+        Ok(Some(cp)) => {
+            match cp.connectors.into_iter().find(|c| c.id == connector_id) {
+                Some(connector) => {
+                    Ok(Json(ApiResponse::success(ConnectorDto::from_domain(connector))))
+                }
+                None => Err((
+                    StatusCode::NOT_FOUND,
+                    Json(ApiResponse::error(format!(
+                        "Connector {} not found on charge point '{}'",
+                        connector_id, charge_point_id
+                    ))),
+                )),
+            }
+        }
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' not found",
+                charge_point_id
+            ))),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
 }

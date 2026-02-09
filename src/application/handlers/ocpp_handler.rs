@@ -42,6 +42,7 @@ impl OcppHandler {
 
     /// Handle an incoming OCPP message
     pub async fn handle(&self, text: &str) -> Option<String> {
+        info!("[{}] Received raw message: {}", self.charge_point_id, text);
         match parse::deserialize_to_message(text) {
             Ok(Message::Call(call)) => self.handle_call(call).await,
             Ok(Message::CallResult(result)) => {
