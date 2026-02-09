@@ -31,6 +31,14 @@ pub async fn handle_boot_notification(
         )
         .await;
 
+    // Auto-provision connector 0 (represents the whole station in OCPP 1.6)
+    // and at least one physical connector if none exist yet.
+    // Real connector set will be populated by StatusNotification messages.
+    let _ = handler
+        .service
+        .ensure_connectors(&handler.charge_point_id, 1)
+        .await;
+
     // Publish boot notification event
     handler.event_bus.publish(Event::BootNotification(BootNotificationEvent {
         charge_point_id: handler.charge_point_id.clone(),

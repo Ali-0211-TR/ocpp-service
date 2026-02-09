@@ -18,7 +18,7 @@ pub enum ConnectorStatus {
 
 impl Default for ConnectorStatus {
     fn default() -> Self {
-        Self::Unavailable
+        Self::Available
     }
 }
 
@@ -177,5 +177,33 @@ impl ChargePoint {
             connector.status = status;
             self.connectors.push(connector);
         }
+    }
+
+    /// Add a connector with the given ID. Returns false if already exists.
+    pub fn add_connector(&mut self, connector_id: u32) -> bool {
+        if self.get_connector(connector_id).is_some() {
+            return false;
+        }
+        self.connectors.push(Connector::new(connector_id));
+        self.connectors.sort_by_key(|c| c.id);
+        true
+    }
+
+    /// Remove a connector by ID. Returns false if not found.
+    pub fn remove_connector(&mut self, connector_id: u32) -> bool {
+        let len_before = self.connectors.len();
+        self.connectors.retain(|c| c.id != connector_id);
+        self.connectors.len() < len_before
+    }
+
+    /// Ensure connectors 0..=num_connectors exist, creating any that are missing.
+    /// Connector 0 represents the charge-point itself (OCPP 1.6 convention).
+    pub fn ensure_connectors(&mut self, num_connectors: u32) {
+        for id in 0..=num_connectors {
+            if self.get_connector(id).is_none() {
+                self.connectors.push(Connector::new(id));
+            }
+        }
+        self.connectors.sort_by_key(|c| c.id);
     }
 }

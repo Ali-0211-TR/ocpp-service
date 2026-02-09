@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use log::{debug, info};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
+    QueryFilter, QueryOrder, Set,
 };
 
 use super::entities::{charge_point, connector, id_tag, tariff, transaction};
@@ -173,7 +174,7 @@ impl Storage for DatabaseStorage {
         // Insert connectors
         for conn in &cp.connectors {
             let connector_model = connector::ActiveModel {
-                id: Set(0), // Auto-increment
+                id: NotSet,
                 charge_point_id: Set(cp.id.clone()),
                 connector_id: Set(conn.id as i32),
                 status: Set(domain_connector_status_to_string(&conn.status)),
@@ -279,7 +280,7 @@ impl Storage for DatabaseStorage {
 
         for conn in &cp.connectors {
             let connector_model = connector::ActiveModel {
-                id: Set(0),
+                id: NotSet,
                 charge_point_id: Set(cp.id.clone()),
                 connector_id: Set(conn.id as i32),
                 status: Set(domain_connector_status_to_string(&conn.status)),

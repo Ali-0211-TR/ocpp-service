@@ -136,6 +136,8 @@ impl Modify for SecurityAddon {
         // Connectors
         charge_points::list_connectors,
         charge_points::get_connector,
+        charge_points::create_connector,
+        charge_points::delete_connector,
         // Monitoring
         monitoring::get_heartbeat_statuses,
         monitoring::get_connection_stats,
@@ -200,6 +202,7 @@ impl Modify for SecurityAddon {
             // Commands
             RemoteStartRequest,
             RemoteStopRequest,
+            CreateConnectorRequest,
             ResetRequest,
             UnlockConnectorRequest,
             ChangeAvailabilityRequest,
@@ -313,8 +316,8 @@ pub fn create_api_router(
         // Combine GET + DELETE on the same path in a single .route() call
         .route("/{charge_point_id}", get(charge_points::get_charge_point).delete(charge_points::delete_charge_point))
         // --- Connectors (uses State<AppState> via FromRef) ---
-        .route("/{charge_point_id}/connectors", get(charge_points::list_connectors))
-        .route("/{charge_point_id}/connectors/{connector_id}", get(charge_points::get_connector))
+        .route("/{charge_point_id}/connectors", get(charge_points::list_connectors).post(charge_points::create_connector))
+        .route("/{charge_point_id}/connectors/{connector_id}", get(charge_points::get_connector).delete(charge_points::delete_connector))
         // --- Commands (uses State<CommandAppState> via FromRef) ---
         .route("/{charge_point_id}/remote-start", post(commands::remote_start))
         .route("/{charge_point_id}/remote-stop", post(commands::remote_stop))

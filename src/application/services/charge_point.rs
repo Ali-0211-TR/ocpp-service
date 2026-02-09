@@ -75,6 +75,64 @@ impl ChargePointService {
         Ok(())
     }
 
+    /// Ensure N connectors exist on a charge point (auto-provisioning).
+    /// Creates connector 0 (station) plus connectors 1..=num_connectors.
+    pub async fn ensure_connectors(
+        &self,
+        charge_point_id: &str,
+        num_connectors: u32,
+    ) -> DomainResult<()> {
+        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+            cp.ensure_connectors(num_connectors);
+            self.storage.update_charge_point(cp).await?;
+            info!(
+                "[{}] Ensured {} connectors exist (0..={})",
+                charge_point_id, num_connectors + 1, num_connectors
+            );
+        }
+        Ok(())
+    }
+
+    /// Add a single connector to a charge point.
+    pub async fn add_connector(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+    ) -> DomainResult<bool> {
+        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+            let added = cp.add_connector(connector_id);
+            if added {
+                self.storage.update_charge_point(cp).await?;
+                info!("[{}] Connector {} added", charge_point_id, connector_id);
+            }
+            Ok(added)
+        } else {
+            Err(crate::domain::DomainError::ChargePointNotFound(
+                charge_point_id.to_string(),
+            ))
+        }
+    }
+
+    /// Remove a connector from a charge point.
+    pub async fn remove_connector(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+    ) -> DomainResult<bool> {
+        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+            let removed = cp.remove_connector(connector_id);
+            if removed {
+                self.storage.update_charge_point(cp).await?;
+                info!("[{}] Connector {} removed", charge_point_id, connector_id);
+            }
+            Ok(removed)
+        } else {
+            Err(crate::domain::DomainError::ChargePointNotFound(
+                charge_point_id.to_string(),
+            ))
+        }
+    }
+
     /// Authorize an ID tag
     pub async fn authorize(&self, id_tag: &str) -> DomainResult<bool> {
         self.storage.is_id_tag_valid(id_tag).await

@@ -126,6 +126,14 @@ fn connector_status_to_string(status: &ConnectorStatus) -> String {
     .to_string()
 }
 
+/// Запрос на добавление коннектора
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({ "connector_id": 2 }))]
+pub struct CreateConnectorRequest {
+    /// Номер коннектора (1-based). 0 = станция целиком (OCPP 1.6)
+    pub connector_id: u32,
+}
+
 /// Сводная статистика по зарядным станциям
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[schema(example = json!({
