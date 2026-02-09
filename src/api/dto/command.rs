@@ -125,3 +125,68 @@ impl CommandResponse {
         }
     }
 }
+
+/// Запрос на изменение конфигурации станции (ChangeConfiguration)
+///
+/// Устанавливает новое значение OCPP-ключа конфигурации.
+/// Станция может ответить: `Accepted`, `Rejected`, `RebootRequired`, `NotSupported`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({
+    "key": "HeartbeatInterval",
+    "value": "300"
+}))]
+pub struct ChangeConfigurationRequest {
+    /// Ключ конфигурации OCPP.
+    /// Стандартные ключи: `HeartbeatInterval`, `MeterValueSampleInterval`,
+    /// `ConnectionTimeOut`, `ClockAlignedDataInterval`, `LocalPreAuthorize`,
+    /// `AuthorizeRemoteTxRequests`, `NumberOfConnectors`
+    pub key: String,
+    /// Новое значение ключа (строка — станция сама интерпретирует тип)
+    pub value: String,
+}
+
+/// Запрос на произвольный обмен данными (DataTransfer)
+///
+/// Вендор-специфичная передача данных на станцию.
+/// Используется для проприетарных расширений OCPP-протокола.
+#[derive(Debug, Deserialize, ToSchema)]
+#[schema(example = json!({
+    "vendor_id": "TexnoUZ",
+    "message_id": "GetCustomData",
+    "data": "{\"param\": \"value\"}"
+}))]
+pub struct DataTransferRequest {
+    /// Идентификатор вендора (производителя станции)
+    pub vendor_id: String,
+    /// Идентификатор сообщения (опционально)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    /// Произвольные данные (обычно JSON-строка)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+}
+
+/// Ответ DataTransfer от станции
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "status": "Accepted",
+    "data": "{\"firmware\": \"1.2.3\"}"
+}))]
+pub struct DataTransferResponse {
+    /// Статус: `Accepted`, `Rejected`, `UnknownMessageId`, `UnknownVendorId`
+    pub status: String,
+    /// Данные от станции (если есть)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+}
+
+/// Ответ GetLocalListVersion
+#[derive(Debug, Serialize, ToSchema)]
+#[schema(example = json!({
+    "list_version": 5
+}))]
+pub struct LocalListVersionResponse {
+    /// Версия локального списка авторизации.
+    /// `-1` = не поддерживается, `0` = список пуст, `>0` = текущая версия
+    pub list_version: i32,
+}

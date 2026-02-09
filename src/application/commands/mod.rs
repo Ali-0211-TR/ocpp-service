@@ -3,7 +3,11 @@
 //! Handles sending OCPP Call messages to charge points and tracking responses.
 
 pub mod change_availability;
+pub mod change_configuration;
+pub mod clear_cache;
+pub mod data_transfer;
 pub mod get_configuration;
+pub mod get_local_list_version;
 pub mod remote_start;
 pub mod remote_stop;
 pub mod reset;
@@ -27,7 +31,11 @@ use crate::session::SharedSessionManager;
 
 // Re-exports for convenience
 pub use change_availability::{change_availability, Availability};
+pub use change_configuration::change_configuration;
+pub use clear_cache::clear_cache;
+pub use data_transfer::{data_transfer, DataTransferResult};
 pub use get_configuration::{get_configuration, ConfigurationResult};
+pub use get_local_list_version::get_local_list_version;
 pub use remote_start::remote_start_transaction;
 pub use remote_stop::remote_stop_transaction;
 pub use reset::{reset, ResetKind};

@@ -163,7 +163,7 @@ fn parse_status(s: &str) -> IdTagStatus {
     get,
     path = "/api/v1/id-tags",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(ListIdTagsParams),
     responses(
         (status = 200, description = "Список IdTag с пагинацией", body = PaginatedResponse<IdTagDto>),
@@ -218,7 +218,7 @@ pub async fn list_id_tags(
     get,
     path = "/api/v1/id-tags/{id_tag}",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(
         ("id_tag" = String, Path, description = "Значение IdTag (номер RFID-карты)")
     ),
@@ -250,7 +250,7 @@ pub async fn get_id_tag(
     post,
     path = "/api/v1/id-tags",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = CreateIdTagRequest,
     responses(
         (status = 201, description = "IdTag успешно создан", body = ApiResponse<IdTagDto>),
@@ -322,7 +322,7 @@ pub async fn create_id_tag(
     put,
     path = "/api/v1/id-tags/{id_tag}",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(
         ("id_tag" = String, Path, description = "Значение IdTag")
     ),
@@ -396,7 +396,7 @@ pub async fn update_id_tag(
     delete,
     path = "/api/v1/id-tags/{id_tag}",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(
         ("id_tag" = String, Path, description = "Значение IdTag для удаления")
     ),
@@ -429,7 +429,7 @@ pub async fn delete_id_tag(
     post,
     path = "/api/v1/id-tags/{id_tag}/block",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(
         ("id_tag" = String, Path, description = "Значение IdTag")
     ),
@@ -471,7 +471,7 @@ pub async fn block_id_tag(
     post,
     path = "/api/v1/id-tags/{id_tag}/unblock",
     tag = "IdTags",
-    security(("bearer_auth" = [])),
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(
         ("id_tag" = String, Path, description = "Значение IdTag")
     ),

@@ -142,12 +142,17 @@ impl Modify for SecurityAddon {
         commands::change_avail,
         commands::trigger_msg,
         commands::get_config,
+        commands::change_config,
+        commands::get_local_list_ver,
+        commands::clear_auth_cache,
+        commands::data_transfer_handler,
         // Transactions
         transactions::list_all_transactions,
         transactions::list_transactions_for_charge_point,
         transactions::get_transaction,
         transactions::get_active_transactions,
         transactions::get_transaction_stats,
+        transactions::force_stop_transaction,
     ),
     components(
         schemas(
@@ -193,6 +198,10 @@ impl Modify for SecurityAddon {
             UnlockConnectorRequest,
             ChangeAvailabilityRequest,
             TriggerMessageRequest,
+            ChangeConfigurationRequest,
+            DataTransferRequest,
+            DataTransferResponse,
+            LocalListVersionResponse,
             CommandResponse,
             commands::ConfigValue,
             commands::ConfigurationResponse,
@@ -302,7 +311,10 @@ pub fn create_api_router(
         .route("/{charge_point_id}/unlock-connector", post(commands::unlock))
         .route("/{charge_point_id}/change-availability", post(commands::change_avail))
         .route("/{charge_point_id}/trigger-message", post(commands::trigger_msg))
-        .route("/{charge_point_id}/configuration", get(commands::get_config))
+        .route("/{charge_point_id}/configuration", get(commands::get_config).put(commands::change_config))
+        .route("/{charge_point_id}/local-list-version", get(commands::get_local_list_ver))
+        .route("/{charge_point_id}/clear-cache", post(commands::clear_auth_cache))
+        .route("/{charge_point_id}/data-transfer", post(commands::data_transfer_handler))
         // --- Transactions under CP (uses State<TransactionAppState> via FromRef) ---
         .route("/{charge_point_id}/transactions", get(transactions::list_transactions_for_charge_point))
         .route("/{charge_point_id}/transactions/active", get(transactions::get_active_transactions))
@@ -388,6 +400,7 @@ pub fn create_api_router(
     let tx_routes = Router::new()
         .route("/", get(transactions::list_all_transactions))
         .route("/{id}", get(transactions::get_transaction))
+        .route("/{transaction_id}/force-stop", post(transactions::force_stop_transaction))
         .layer(middleware::from_fn_with_state(
             middleware_state.clone(),
             auth_middleware,

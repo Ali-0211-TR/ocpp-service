@@ -7,6 +7,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use log::info;
 
 use crate::api::dto::{ApiResponse, PaginatedResponse, PaginationParams, TransactionDto, TransactionFilter};
 use crate::infrastructure::Storage;
@@ -32,6 +33,10 @@ pub struct TransactionAppState {
     ),
     responses(
         (status = 200, description = "Список транзакций с пагинацией", body = PaginatedResponse<TransactionDto>)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
     )
 )]
 pub async fn list_transactions_for_charge_point(
@@ -113,6 +118,10 @@ pub async fn list_transactions_for_charge_point(
     params(PaginationParams),
     responses(
         (status = 200, description = "Список всех транзакций с пагинацией", body = PaginatedResponse<TransactionDto>)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
     )
 )]
 pub async fn list_all_transactions(
@@ -154,6 +163,10 @@ pub async fn list_all_transactions(
     responses(
         (status = 200, description = "Полная информация о транзакции", body = ApiResponse<TransactionDto>),
         (status = 404, description = "Транзакция не найдена")
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
     )
 )]
 pub async fn get_transaction(
@@ -186,6 +199,10 @@ pub async fn get_transaction(
     ),
     responses(
         (status = 200, description = "Список активных транзакций", body = ApiResponse<Vec<TransactionDto>>)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
     )
 )]
 pub async fn get_active_transactions(
@@ -242,6 +259,10 @@ pub struct TransactionStats {
     ),
     responses(
         (status = 200, description = "Статистика: total, active, completed, energy", body = ApiResponse<TransactionStats>)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
     )
 )]
 pub async fn get_transaction_stats(
@@ -288,4 +309,84 @@ pub async fn get_transaction_stats(
             Json(ApiResponse::error(e.to_string())),
         )),
     }
+}
+
+/// Принудительная остановка зависшей транзакции
+///
+/// Используется когда транзакция зависла в статусе `Active` из-за
+/// ошибки связи или некорректного поведения станции.
+/// Устанавливает `meter_stop = meter_start` (0 Wh потреблено),
+/// статус `Completed` и причину `ForceStop`.
+///
+/// ⚠️ Не отправляет команду на станцию — только обновляет базу данных.
+/// Если станция всё ещё заряжает, используйте `remote-stop` вместо этого.
+#[utoipa::path(
+    post,
+    path = "/api/v1/transactions/{transaction_id}/force-stop",
+    tag = "Transactions",
+    params(
+        ("transaction_id" = i32, Path, description = "ID зависшей транзакции")
+    ),
+    responses(
+        (status = 200, description = "Транзакция принудительно остановлена", body = ApiResponse<TransactionDto>),
+        (status = 404, description = "Транзакция не найдена"),
+        (status = 409, description = "Транзакция уже завершена")
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("api_key" = [])
+    )
+)]
+pub async fn force_stop_transaction(
+    State(state): State<TransactionAppState>,
+    Path(transaction_id): Path<i32>,
+) -> Result<Json<ApiResponse<TransactionDto>>, (StatusCode, Json<ApiResponse<TransactionDto>>)> {
+    // Get the transaction
+    let transaction = match state.storage.get_transaction(transaction_id).await {
+        Ok(Some(tx)) => tx,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse::error(format!(
+                    "Транзакция {} не найдена",
+                    transaction_id
+                ))),
+            ));
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            ));
+        }
+    };
+
+    // Check if already stopped
+    if !transaction.is_active() {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(ApiResponse::error(format!(
+                "Транзакция {} уже завершена (статус: {:?})",
+                transaction_id, transaction.status
+            ))),
+        ));
+    }
+
+    // Force stop: set meter_stop to meter_start (0 energy consumed)
+    let mut tx = transaction;
+    tx.stop(tx.meter_start, Some("ForceStop".to_string()));
+
+    if let Err(e) = state.storage.update_transaction(tx.clone()).await {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        ));
+    }
+
+    info!(
+        "Transaction {} force-stopped (CP: {}, Connector: {})",
+        transaction_id, tx.charge_point_id, tx.connector_id
+    );
+
+    Ok(Json(ApiResponse::success(TransactionDto::from_domain(tx))))
 }

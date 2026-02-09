@@ -191,7 +191,7 @@ fn parse_tariff_type(s: &str) -> TariffType {
     responses(
         (status = 200, description = "Список тарифов", body = ApiResponse<Vec<TariffResponse>>)
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn list_tariffs(
     State(state): State<AppState>,
@@ -220,7 +220,7 @@ pub async fn list_tariffs(
         (status = 200, description = "Полная информация о тарифе", body = ApiResponse<TariffResponse>),
         (status = 404, description = "Тариф не найден")
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn get_tariff(
     State(state): State<AppState>,
@@ -250,7 +250,7 @@ pub async fn get_tariff(
         (status = 200, description = "Тариф по умолчанию", body = ApiResponse<TariffResponse>),
         (status = 404, description = "Тариф по умолчанию не настроен")
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn get_default_tariff(
     State(state): State<AppState>,
@@ -278,7 +278,7 @@ pub async fn get_default_tariff(
         (status = 201, description = "Тариф успешно создан", body = ApiResponse<TariffResponse>),
         (status = 400, description = "Некорректные данные")
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn create_tariff(
     State(state): State<AppState>,
@@ -329,7 +329,7 @@ pub async fn create_tariff(
         (status = 200, description = "Тариф успешно обновлён", body = ApiResponse<TariffResponse>),
         (status = 404, description = "Тариф не найден")
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn update_tariff(
     State(state): State<AppState>,
@@ -393,7 +393,7 @@ pub async fn update_tariff(
         (status = 200, description = "Тариф успешно удалён"),
         (status = 404, description = "Тариф не найден")
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn delete_tariff(
     State(state): State<AppState>,
@@ -421,7 +421,7 @@ pub async fn delete_tariff(
         (status = 200, description = "Детализация стоимости", body = ApiResponse<CostBreakdownResponse>),
         (status = 404, description = "Тариф не найден")
     ),
-    security(("bearer_auth" = []))
+    security(("bearer_auth" = []), ("api_key" = []))
 )]
 pub async fn preview_cost(
     State(state): State<AppState>,

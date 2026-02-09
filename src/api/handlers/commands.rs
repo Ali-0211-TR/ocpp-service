@@ -9,12 +9,14 @@ use axum::{
 };
 
 use crate::api::dto::{
-    ApiResponse, ChangeAvailabilityRequest, CommandResponse, RemoteStartRequest,
+    ApiResponse, ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse,
+    DataTransferRequest, DataTransferResponse, LocalListVersionResponse, RemoteStartRequest,
     RemoteStopRequest, ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
 };
 use crate::application::{
-    change_availability, get_configuration, remote_start_transaction, remote_stop_transaction,
-    reset, trigger_message, unlock_connector, Availability, CommandSender, ResetKind, TriggerType,
+    change_availability, change_configuration, clear_cache, data_transfer, get_configuration,
+    get_local_list_version, remote_start_transaction, remote_stop_transaction, reset,
+    trigger_message, unlock_connector, Availability, CommandSender, ResetKind, TriggerType,
 };
 use crate::session::SharedSessionManager;
 
@@ -37,6 +39,7 @@ pub struct CommandAppState {
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = RemoteStartRequest,
     responses(
         (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
@@ -98,6 +101,7 @@ pub async fn remote_start(
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = RemoteStopRequest,
     responses(
         (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
@@ -152,6 +156,7 @@ pub async fn remote_stop(
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = ResetRequest,
     responses(
         (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
@@ -209,6 +214,7 @@ pub async fn reset_charge_point(
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = UnlockConnectorRequest,
     responses(
         (status = 200, description = "Результат: Unlocked, UnlockFailed или NotSupported", body = ApiResponse<CommandResponse>),
@@ -263,6 +269,7 @@ pub async fn unlock(
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = ChangeAvailabilityRequest,
     responses(
         (status = 200, description = "Результат: Accepted, Rejected или Scheduled", body = ApiResponse<CommandResponse>),
@@ -332,6 +339,7 @@ pub async fn change_avail(
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции")
     ),
+    security(("bearer_auth" = []), ("api_key" = [])),
     request_body = TriggerMessageRequest,
     responses(
         (status = 200, description = "Результат: Accepted, Rejected или NotImplemented", body = ApiResponse<CommandResponse>),
@@ -411,6 +419,7 @@ pub async fn trigger_msg(
     get,
     path = "/api/v1/charge-points/{charge_point_id}/configuration",
     tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
     params(
         ("charge_point_id" = String, Path, description = "ID зарядной станции"),
         ("keys" = Option<String>, Query, description = "Ключи конфигурации через запятую (опционально)")
@@ -491,4 +500,229 @@ pub struct ConfigurationResponse {
     pub configuration: Vec<ConfigValue>,
     /// Ключи, которые станция не распознала
     pub unknown_keys: Vec<String>,
+}
+
+/// Изменение конфигурации станции
+///
+/// Отправляет ChangeConfiguration на станцию для установки нового значения
+/// OCPP-ключа конфигурации. Ключи, помеченные `readonly: true` в ответе
+/// GetConfiguration, изменить нельзя.
+///
+/// Возможные ответы:
+/// - `Accepted` — значение принято и применено
+/// - `Rejected` — станция отклонила изменение
+/// - `RebootRequired` — значение принято, но требуется перезагрузка станции
+/// - `NotSupported` — ключ не поддерживается станцией
+#[utoipa::path(
+    put,
+    path = "/api/v1/charge-points/{charge_point_id}/configuration",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
+    ),
+    request_body = ChangeConfigurationRequest,
+    responses(
+        (status = 200, description = "Результат: Accepted, Rejected, RebootRequired или NotSupported", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
+    )
+)]
+pub async fn change_config(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<ChangeConfigurationRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_manager.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match change_configuration(
+        &state.command_sender,
+        &charge_point_id,
+        request.key.clone(),
+        request.value.clone(),
+    )
+    .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let message = match status_str.as_str() {
+                "Accepted" => format!("Конфигурация '{}' успешно изменена на '{}'", request.key, request.value),
+                "RebootRequired" => format!("Конфигурация '{}' изменена, требуется перезагрузка станции", request.key),
+                "Rejected" => format!("Станция отклонила изменение '{}'", request.key),
+                _ => format!("Ключ '{}' не поддерживается станцией", request.key),
+            };
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: Some(message),
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Получение версии локального списка авторизации
+///
+/// Запрашивает у станции версию Local Authorization List (OCPP 1.6).
+/// - `-1` — список не поддерживается
+/// - `0` — список пуст
+/// - `>0` — текущая версия списка
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/local-list-version",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
+    ),
+    responses(
+        (status = 200, description = "Версия локального списка авторизации", body = ApiResponse<LocalListVersionResponse>),
+        (status = 404, description = "Станция не подключена")
+    )
+)]
+pub async fn get_local_list_ver(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+) -> Result<
+    Json<ApiResponse<LocalListVersionResponse>>,
+    (StatusCode, Json<ApiResponse<LocalListVersionResponse>>),
+> {
+    if !state.session_manager.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match get_local_list_version(&state.command_sender, &charge_point_id).await {
+        Ok(version) => Ok(Json(ApiResponse::success(LocalListVersionResponse {
+            list_version: version,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Очистка кэша авторизации
+///
+/// Отправляет ClearCache на станцию. Станция очищает свой
+/// внутренний кэш авторизованных RFID-карт. После этого каждая
+/// авторизация будет запрашиваться у сервера.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/clear-cache",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
+    ),
+    responses(
+        (status = 200, description = "Результат: Accepted или Rejected", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Станция не подключена")
+    )
+)]
+pub async fn clear_auth_cache(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_manager.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match clear_cache(&state.command_sender, &charge_point_id).await {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: Some("Кэш авторизации очищен".to_string()),
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Произвольный обмен данными (DataTransfer)
+///
+/// Отправляет вендор-специфичные данные на зарядную станцию.
+/// Используется для проприетарных расширений OCPP-протокола,
+/// не покрытых стандартными командами.
+///
+/// Ответы:
+/// - `Accepted` — данные приняты
+/// - `Rejected` — данные отклонены
+/// - `UnknownMessageId` — неизвестный message_id
+/// - `UnknownVendorId` — неизвестный vendor_id
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/data-transfer",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(
+        ("charge_point_id" = String, Path, description = "ID зарядной станции")
+    ),
+    request_body = DataTransferRequest,
+    responses(
+        (status = 200, description = "Результат обмена данными", body = ApiResponse<DataTransferResponse>),
+        (status = 404, description = "Станция не подключена")
+    )
+)]
+pub async fn data_transfer_handler(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<DataTransferRequest>,
+) -> Result<
+    Json<ApiResponse<DataTransferResponse>>,
+    (StatusCode, Json<ApiResponse<DataTransferResponse>>),
+> {
+    if !state.session_manager.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match data_transfer(
+        &state.command_sender,
+        &charge_point_id,
+        request.vendor_id,
+        request.message_id,
+        request.data,
+    )
+    .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(DataTransferResponse {
+            status: format!("{:?}", result.status),
+            data: result.data,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
 }
