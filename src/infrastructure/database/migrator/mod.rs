@@ -10,6 +10,7 @@ mod m20240101_000005_create_api_keys;
 mod m20240101_000006_create_id_tags;
 mod m20240101_000007_create_tariffs;
 mod m20240101_000008_add_billing_to_transactions;
+mod m20240101_000009_add_meter_data_to_transactions;
 
 pub struct Migrator;
 
@@ -25,6 +26,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20240101_000006_create_id_tags::Migration),
             Box::new(m20240101_000007_create_tariffs::Migration),
             Box::new(m20240101_000008_add_billing_to_transactions::Migration),
+            Box::new(m20240101_000009_add_meter_data_to_transactions::Migration),
         ]
     }
 }

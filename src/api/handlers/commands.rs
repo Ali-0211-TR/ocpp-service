@@ -20,6 +20,8 @@ use crate::application::{
     get_local_list_version, remote_start_transaction, remote_stop_transaction, reset,
     trigger_message, unlock_connector, Availability, CommandSender, ResetKind, TriggerType,
 };
+use crate::application::services::ChargePointService;
+use crate::domain::ChargingLimitType;
 use crate::infrastructure::Storage;
 use crate::notifications::{Event, SharedEventBus, TransactionStoppedEvent};
 use crate::session::SharedSessionManager;
@@ -31,6 +33,7 @@ pub struct CommandAppState {
     pub session_manager: SharedSessionManager,
     pub command_sender: Arc<CommandSender>,
     pub event_bus: SharedEventBus,
+    pub charge_point_service: Arc<ChargePointService>,
 }
 
 /// Удалённый запуск зарядки
@@ -80,6 +83,26 @@ pub async fn remote_start(
         Ok(status) => {
             let status_str = format!("{:?}", status);
             let accepted = status_str.contains("Accepted");
+
+            // If accepted and limits are specified, store pending limits
+            if accepted {
+                if let (Some(limit_type_str), Some(limit_value)) = (&request.limit_type, request.limit_value) {
+                    if let Some(limit_type) = ChargingLimitType::from_str(limit_type_str) {
+                        let connector_id = request.connector_id.unwrap_or(1);
+                        state.charge_point_service.set_pending_limit(
+                            &charge_point_id,
+                            connector_id,
+                            limit_type,
+                            limit_value,
+                        );
+                        info!(
+                            "Set pending charging limit for {}:{} - {} = {}",
+                            charge_point_id, connector_id, limit_type_str, limit_value
+                        );
+                    }
+                }
+            }
+
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
                 message: if accepted {

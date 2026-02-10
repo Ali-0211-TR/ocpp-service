@@ -29,6 +29,13 @@ pub trait Storage: Send + Sync {
         charge_point_id: &str,
     ) -> DomainResult<Vec<Transaction>>;
     async fn list_all_transactions(&self) -> DomainResult<Vec<Transaction>>;
+    async fn update_transaction_meter_data(
+        &self,
+        transaction_id: i32,
+        meter_value: Option<i32>,
+        power_w: Option<f64>,
+        soc: Option<i32>,
+    ) -> DomainResult<()>;
 
     // ID Tag operations (authorization)
     async fn is_id_tag_valid(&self, id_tag: &str) -> DomainResult<bool>;

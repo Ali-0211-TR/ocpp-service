@@ -2,19 +2,57 @@
 
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use log::info;
 
-use crate::domain::{ChargePoint, ConnectorStatus, DomainResult, Transaction};
+use crate::domain::{ChargePoint, ChargingLimitType, ConnectorStatus, DomainResult, Transaction};
 use crate::infrastructure::Storage;
+
+/// Pending charging limit (set via remote start, applied when transaction starts)
+#[derive(Debug, Clone)]
+pub struct PendingChargingLimit {
+    pub limit_type: ChargingLimitType,
+    pub limit_value: f64,
+}
 
 /// Service for charge point business operations
 pub struct ChargePointService {
     storage: Arc<dyn Storage>,
+    /// Pending charging limits per (charge_point_id, connector_id)
+    pending_limits: DashMap<(String, u32), PendingChargingLimit>,
 }
 
 impl ChargePointService {
     pub fn new(storage: Arc<dyn Storage>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            pending_limits: DashMap::new(),
+        }
+    }
+
+    /// Store a pending charging limit for a connector
+    pub fn set_pending_limit(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+        limit_type: ChargingLimitType,
+        limit_value: f64,
+    ) {
+        self.pending_limits.insert(
+            (charge_point_id.to_string(), connector_id),
+            PendingChargingLimit { limit_type, limit_value },
+        );
+    }
+
+    /// Take and remove a pending charging limit for a connector
+    fn take_pending_limit(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+    ) -> Option<PendingChargingLimit> {
+        self.pending_limits
+            .remove(&(charge_point_id.to_string(), connector_id))
+            .map(|(_, v)| v)
     }
 
     /// Register a new charge point or update existing one
@@ -155,7 +193,7 @@ impl ChargePointService {
     ) -> DomainResult<Transaction> {
         let transaction_id = self.storage.next_transaction_id().await;
 
-        let transaction = Transaction::new(
+        let mut transaction = Transaction::new(
             transaction_id,
             charge_point_id,
             connector_id,
@@ -163,11 +201,22 @@ impl ChargePointService {
             meter_start,
         );
 
+        // Apply pending charging limits if any
+        if let Some(limit) = self.take_pending_limit(charge_point_id, connector_id) {
+            info!(
+                "Applying pending charging limit to transaction {}: {:?} = {}",
+                transaction_id, limit.limit_type, limit.limit_value
+            );
+            transaction.limit_type = Some(limit.limit_type);
+            transaction.limit_value = Some(limit.limit_value);
+        }
+
         self.storage.save_transaction(transaction.clone()).await?;
 
         info!(
-            "Transaction {} started: CP={}, Connector={}, IdTag={}",
-            transaction_id, charge_point_id, connector_id, id_tag
+            "Transaction {} started: CP={}, Connector={}, IdTag={}, Limits={:?}/{:?}",
+            transaction_id, charge_point_id, connector_id, id_tag,
+            transaction.limit_type, transaction.limit_value
         );
 
         Ok(transaction)
@@ -197,6 +246,33 @@ impl ChargePointService {
         }
 
         Ok(transaction)
+    }
+
+    /// Update live meter data for an active transaction
+    pub async fn update_transaction_meter_data(
+        &self,
+        transaction_id: i32,
+        meter_value: Option<i32>,
+        power_w: Option<f64>,
+        soc: Option<i32>,
+    ) -> DomainResult<Option<Transaction>> {
+        self.storage
+            .update_transaction_meter_data(transaction_id, meter_value, power_w, soc)
+            .await?;
+
+        // Return updated transaction for limit checking
+        self.storage.get_transaction(transaction_id).await
+    }
+
+    /// Get active transaction for a connector
+    pub async fn get_active_transaction_for_connector(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+    ) -> DomainResult<Option<Transaction>> {
+        self.storage
+            .get_active_transaction_for_connector(charge_point_id, connector_id)
+            .await
     }
 
     /// Get charge point by ID

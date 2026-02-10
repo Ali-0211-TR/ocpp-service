@@ -10,7 +10,7 @@ use sea_orm::{
 
 use super::entities::{charge_point, connector, id_tag, tariff, transaction};
 use crate::domain::{
-    BillingStatus, ChargePoint, ChargePointStatus, Connector, ConnectorStatus, DomainError, DomainResult,
+    BillingStatus, ChargePoint, ChargePointStatus, ChargingLimitType, Connector, ConnectorStatus, DomainError, DomainResult,
     Tariff, TariffType, Transaction, TransactionBilling, TransactionStatus,
 };
 use crate::infrastructure::storage::Storage;
@@ -137,6 +137,27 @@ fn string_to_billing_status(s: &str) -> BillingStatus {
 
 fn db_error_to_domain(e: DbErr) -> DomainError {
     DomainError::StorageError(e.to_string())
+}
+
+fn transaction_model_to_domain(t: transaction::Model) -> Transaction {
+    Transaction {
+        id: t.id,
+        charge_point_id: t.charge_point_id,
+        connector_id: t.connector_id as u32,
+        id_tag: t.id_tag,
+        meter_start: t.meter_start,
+        meter_stop: t.meter_stop,
+        started_at: t.started_at,
+        stopped_at: t.stopped_at,
+        stop_reason: t.stop_reason,
+        status: string_to_domain_transaction_status(&t.status),
+        last_meter_value: t.last_meter_value,
+        current_power_w: t.current_power_w,
+        current_soc: t.current_soc,
+        last_meter_update: t.last_meter_update,
+        limit_type: t.limit_type.as_deref().and_then(ChargingLimitType::from_str),
+        limit_value: t.limit_value,
+    }
 }
 
 #[async_trait]
@@ -421,6 +442,14 @@ impl Storage for DatabaseStorage {
             time_cost: Set(None),
             session_fee: Set(None),
             billing_status: Set(Some("Pending".to_string())),
+            // Live meter data
+            last_meter_value: Set(tx.last_meter_value),
+            current_power_w: Set(tx.current_power_w),
+            current_soc: Set(tx.current_soc),
+            last_meter_update: Set(tx.last_meter_update),
+            // Charging limits
+            limit_type: Set(tx.limit_type.as_ref().map(|lt| lt.as_str().to_string())),
+            limit_value: Set(tx.limit_value),
         };
 
         model.insert(&self.db).await.map_err(db_error_to_domain)?;
@@ -434,18 +463,7 @@ impl Storage for DatabaseStorage {
             .await
             .map_err(db_error_to_domain)?;
 
-        Ok(tx_model.map(|t| Transaction {
-            id: t.id,
-            charge_point_id: t.charge_point_id,
-            connector_id: t.connector_id as u32,
-            id_tag: t.id_tag,
-            meter_start: t.meter_start,
-            meter_stop: t.meter_stop,
-            started_at: t.started_at,
-            stopped_at: t.stopped_at,
-            stop_reason: t.stop_reason,
-            status: string_to_domain_transaction_status(&t.status),
-        }))
+        Ok(tx_model.map(transaction_model_to_domain))
     }
 
     async fn update_transaction(&self, tx: Transaction) -> DomainResult<()> {
@@ -483,6 +501,14 @@ impl Storage for DatabaseStorage {
             time_cost: Set(existing.time_cost),
             session_fee: Set(existing.session_fee),
             billing_status: Set(existing.billing_status),
+            // Live meter data
+            last_meter_value: Set(tx.last_meter_value),
+            current_power_w: Set(tx.current_power_w),
+            current_soc: Set(tx.current_soc),
+            last_meter_update: Set(tx.last_meter_update),
+            // Charging limits
+            limit_type: Set(tx.limit_type.as_ref().map(|lt| lt.as_str().to_string())),
+            limit_value: Set(tx.limit_value),
         };
 
         model.update(&self.db).await.map_err(db_error_to_domain)?;
@@ -502,18 +528,7 @@ impl Storage for DatabaseStorage {
             .await
             .map_err(db_error_to_domain)?;
 
-        Ok(tx_model.map(|t| Transaction {
-            id: t.id,
-            charge_point_id: t.charge_point_id,
-            connector_id: t.connector_id as u32,
-            id_tag: t.id_tag,
-            meter_start: t.meter_start,
-            meter_stop: t.meter_stop,
-            started_at: t.started_at,
-            stopped_at: t.stopped_at,
-            stop_reason: t.stop_reason,
-            status: string_to_domain_transaction_status(&t.status),
-        }))
+        Ok(tx_model.map(transaction_model_to_domain))
     }
 
     async fn list_transactions_for_charge_point(
@@ -526,21 +541,7 @@ impl Storage for DatabaseStorage {
             .await
             .map_err(db_error_to_domain)?;
 
-        Ok(tx_models
-            .into_iter()
-            .map(|t| Transaction {
-                id: t.id,
-                charge_point_id: t.charge_point_id,
-                connector_id: t.connector_id as u32,
-                id_tag: t.id_tag,
-                meter_start: t.meter_start,
-                meter_stop: t.meter_stop,
-                started_at: t.started_at,
-                stopped_at: t.stopped_at,
-                stop_reason: t.stop_reason,
-                status: string_to_domain_transaction_status(&t.status),
-            })
-            .collect())
+        Ok(tx_models.into_iter().map(transaction_model_to_domain).collect())
     }
 
     async fn list_all_transactions(&self) -> DomainResult<Vec<Transaction>> {
@@ -550,21 +551,43 @@ impl Storage for DatabaseStorage {
             .await
             .map_err(db_error_to_domain)?;
 
-        Ok(tx_models
-            .into_iter()
-            .map(|t| Transaction {
-                id: t.id,
-                charge_point_id: t.charge_point_id,
-                connector_id: t.connector_id as u32,
-                id_tag: t.id_tag,
-                meter_start: t.meter_start,
-                meter_stop: t.meter_stop,
-                started_at: t.started_at,
-                stopped_at: t.stopped_at,
-                stop_reason: t.stop_reason,
-                status: string_to_domain_transaction_status(&t.status),
-            })
-            .collect())
+        Ok(tx_models.into_iter().map(transaction_model_to_domain).collect())
+    }
+
+    async fn update_transaction_meter_data(
+        &self,
+        transaction_id: i32,
+        meter_value: Option<i32>,
+        power_w: Option<f64>,
+        soc: Option<i32>,
+    ) -> DomainResult<()> {
+        debug!("Updating meter data for transaction {}: meter={:?}, power={:?}, soc={:?}", 
+            transaction_id, meter_value, power_w, soc);
+
+        let existing = transaction::Entity::find_by_id(transaction_id)
+            .one(&self.db)
+            .await
+            .map_err(db_error_to_domain)?;
+
+        let Some(existing) = existing else {
+            return Err(DomainError::TransactionNotFound(transaction_id));
+        };
+
+        let mut active: transaction::ActiveModel = existing.into();
+        
+        if let Some(mv) = meter_value {
+            active.last_meter_value = Set(Some(mv));
+        }
+        if let Some(p) = power_w {
+            active.current_power_w = Set(Some(p));
+        }
+        if let Some(s) = soc {
+            active.current_soc = Set(Some(s));
+        }
+        active.last_meter_update = Set(Some(Utc::now()));
+
+        active.update(&self.db).await.map_err(db_error_to_domain)?;
+        Ok(())
     }
 
     async fn is_id_tag_valid(&self, id_tag_value: &str) -> DomainResult<bool> {

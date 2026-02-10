@@ -18,6 +18,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::api::dto::*;
 use crate::api::handlers::{api_keys, auth, charge_points, commands, health, id_tags, monitoring, tariffs, transactions};
 use crate::application::services::HeartbeatMonitor;
+use crate::application::services::ChargePointService;
 use crate::application::CommandSender;
 use crate::auth::jwt::JwtConfig;
 use crate::auth::middleware::{auth_middleware, AuthState};
@@ -34,6 +35,7 @@ pub struct ChargePointUnifiedState {
     pub command_sender: Arc<CommandSender>,
     pub event_bus: SharedEventBus,
     pub auth: AuthState,
+    pub charge_point_service: Arc<ChargePointService>,
 }
 
 // -- FromRef implementations so each handler keeps its own State<T> extractor --
@@ -54,6 +56,7 @@ impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
             session_manager: s.session_manager.clone(),
             command_sender: Arc::clone(&s.command_sender),
             event_bus: s.event_bus.clone(),
+            charge_point_service: Arc::clone(&s.charge_point_service),
         }
     }
 }
@@ -289,6 +292,7 @@ pub fn create_api_router(
     jwt_config: JwtConfig,
     heartbeat_monitor: Arc<HeartbeatMonitor>,
     event_bus: SharedEventBus,
+    charge_point_service: Arc<ChargePointService>,
 ) -> Router {
     let middleware_state = AuthState {
         jwt_config: jwt_config.clone(),
@@ -303,6 +307,7 @@ pub fn create_api_router(
         command_sender,
         event_bus: event_bus.clone(),
         auth: middleware_state.clone(),
+        charge_point_service,
     };
 
     // A SINGLE router for every /api/v1/charge-points/* route.

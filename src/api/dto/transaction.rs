@@ -22,7 +22,12 @@ use crate::domain::{Transaction, TransactionStatus};
     "status": "Completed",
     "started_at": "2024-01-15T10:00:00Z",
     "stopped_at": "2024-01-15T12:00:00Z",
-    "stop_reason": "Local"
+    "stop_reason": "Local",
+    "last_meter_value": 15000,
+    "current_power_w": 7400.0,
+    "current_soc": 65,
+    "limit_type": "energy",
+    "limit_value": 20.0
 }))]
 pub struct TransactionDto {
     /// Уникальный ID транзакции (автоинкремент)
@@ -51,11 +56,31 @@ pub struct TransactionDto {
     /// Причина остановки: `Local`, `Remote`, `EmergencyStop`, `EVDisconnected`, `PowerLoss` и др.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    // Live meter data
+    /// Последнее показание счётчика (Вт·ч). Обновляется в реальном времени при зарядке
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_meter_value: Option<i32>,
+    /// Текущая мощность зарядки (Вт). null если данные недоступны
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_power_w: Option<f64>,
+    /// Текущий уровень заряда батареи (%). null если станция не отправляет SoC
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_soc: Option<i32>,
+    /// Время последнего обновления данных счётчика
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_meter_update: Option<DateTime<Utc>>,
+    // Charging limits
+    /// Тип лимита: "energy" (кВт·ч), "amount" (сумма), "soc" (%)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_type: Option<String>,
+    /// Значение лимита
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_value: Option<f64>,
 }
 
 impl TransactionDto {
     pub fn from_domain(tx: Transaction) -> Self {
-        let energy = tx.energy_consumed();
+        let energy = tx.energy_consumed().or_else(|| tx.live_energy_consumed());
         Self {
             id: tx.id,
             charge_point_id: tx.charge_point_id,
@@ -68,6 +93,12 @@ impl TransactionDto {
             started_at: tx.started_at,
             stopped_at: tx.stopped_at,
             stop_reason: tx.stop_reason,
+            last_meter_value: tx.last_meter_value,
+            current_power_w: tx.current_power_w,
+            current_soc: tx.current_soc,
+            last_meter_update: tx.last_meter_update,
+            limit_type: tx.limit_type.as_ref().map(|lt| lt.as_str().to_string()),
+            limit_value: tx.limit_value,
         }
     }
 }

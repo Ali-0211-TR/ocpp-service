@@ -136,8 +136,14 @@ pub struct MeterValuesEvent {
     pub charge_point_id: String,
     pub connector_id: u32,
     pub transaction_id: Option<i32>,
-    pub meter_value: f64,
-    pub unit: String,
+    /// Current energy meter reading in Wh
+    pub energy_wh: Option<f64>,
+    /// Energy consumed since start of transaction in Wh
+    pub energy_consumed_wh: Option<f64>,
+    /// Current charging power in W
+    pub power_w: Option<f64>,
+    /// Current State of Charge in %
+    pub soc: Option<f64>,
     pub timestamp: DateTime<Utc>,
 }
 

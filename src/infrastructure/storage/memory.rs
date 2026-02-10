@@ -163,6 +163,21 @@ impl Storage for InMemoryStorage {
         Ok(self.transactions.iter().map(|t| t.clone()).collect())
     }
 
+    async fn update_transaction_meter_data(
+        &self,
+        transaction_id: i32,
+        meter_value: Option<i32>,
+        power_w: Option<f64>,
+        soc: Option<i32>,
+    ) -> DomainResult<()> {
+        if let Some(mut tx) = self.transactions.get_mut(&transaction_id) {
+            tx.update_meter_data(meter_value, power_w, soc);
+            Ok(())
+        } else {
+            Err(DomainError::TransactionNotFound(transaction_id))
+        }
+    }
+
     async fn is_id_tag_valid(&self, id_tag: &str) -> DomainResult<bool> {
         // For development: accept any non-empty ID tag
         // In production, check against database

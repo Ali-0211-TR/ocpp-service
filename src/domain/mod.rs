@@ -8,4 +8,4 @@ pub mod transaction;
 pub use charge_point::{ChargePoint, ChargePointStatus, Connector, ConnectorStatus};
 pub use error::{DomainError, DomainResult};
 pub use tariff::{BillingStatus, CostBreakdown, Tariff, TariffType, TransactionBilling};
-pub use transaction::{Transaction, TransactionStatus};
+pub use transaction::{ChargingLimitType, Transaction, TransactionStatus};

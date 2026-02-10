@@ -37,7 +37,7 @@ impl std::fmt::Display for BillingStatus {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "transactions")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -98,6 +98,34 @@ pub struct Model {
     /// Billing status
     #[sea_orm(nullable)]
     pub billing_status: Option<String>,
+    
+    // Live meter data fields
+    
+    /// Last meter value reading (Wh)
+    #[sea_orm(nullable)]
+    pub last_meter_value: Option<i32>,
+    
+    /// Current charging power (W)
+    #[sea_orm(nullable, column_type = "Double")]
+    pub current_power_w: Option<f64>,
+    
+    /// Current State of Charge (%)
+    #[sea_orm(nullable)]
+    pub current_soc: Option<i32>,
+    
+    /// Timestamp of last meter values update
+    #[sea_orm(nullable)]
+    pub last_meter_update: Option<DateTimeUtc>,
+    
+    // Charging limit fields
+    
+    /// Limit type: "energy" (kWh), "amount" (cost), "soc" (%)
+    #[sea_orm(nullable)]
+    pub limit_type: Option<String>,
+    
+    /// Limit value (kWh for energy, smallest currency unit for amount, % for soc)
+    #[sea_orm(nullable, column_type = "Double")]
+    pub limit_value: Option<f64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shutdown.start_signal_listener();
 
     // Create OCPP WebSocket server with shutdown support
-    let server = OcppServer::new(config.clone(), service, billing_service, event_bus.clone())
+    let server = OcppServer::new(config.clone(), service.clone(), billing_service, event_bus.clone())
         .with_shutdown(shutdown_signal.clone());
 
     // Get session manager and command sender for API
@@ -125,6 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         jwt_config,
         heartbeat_monitor,
         event_bus,
+        service,
     );
 
     // Start REST API server with graceful shutdown

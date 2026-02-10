@@ -10,7 +10,9 @@ use utoipa::ToSchema;
 #[derive(Debug, Deserialize, ToSchema)]
 #[schema(example = json!({
     "id_tag": "RFID001",
-    "connector_id": 1
+    "connector_id": 1,
+    "limit_type": "energy",
+    "limit_value": 10.0
 }))]
 pub struct RemoteStartRequest {
     /// RFID-карта или токен авторизации. Должен существовать в списке IdTags со статусом Accepted
@@ -18,6 +20,12 @@ pub struct RemoteStartRequest {
     /// Номер коннектора (1-based). Если не указан, станция выберет сама
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connector_id: Option<u32>,
+    /// Тип лимита зарядки: "energy" (кВт·ч), "amount" (сумма), "soc" (% заряда)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_type: Option<String>,
+    /// Значение лимита: кВт·ч для energy, сумма для amount, % для soc
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_value: Option<f64>,
 }
 
 /// Запрос на удалённую остановку зарядки (RemoteStopTransaction)
