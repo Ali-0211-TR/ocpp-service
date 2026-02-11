@@ -5,6 +5,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
+use crate::domain::OcppVersion;
+
 use super::connection::Connection;
 
 /// Thread-safe registry of active OCPP charge point sessions
@@ -28,9 +30,14 @@ impl SessionRegistry {
     }
 
     /// Register a new charge point connection
-    pub fn register(&self, charge_point_id: &str, sender: mpsc::UnboundedSender<String>) {
-        info!(charge_point_id, "Registering charge point session");
-        let connection = Connection::new(charge_point_id, sender);
+    pub fn register(
+        &self,
+        charge_point_id: &str,
+        sender: mpsc::UnboundedSender<String>,
+        ocpp_version: OcppVersion,
+    ) {
+        info!(charge_point_id, %ocpp_version, "Registering charge point session");
+        let connection = Connection::new(charge_point_id, sender, ocpp_version);
         self.sessions.insert(charge_point_id.to_string(), connection);
     }
 
@@ -84,6 +91,13 @@ impl SessionRegistry {
     /// Number of active sessions
     pub fn count(&self) -> usize {
         self.sessions.len()
+    }
+
+    /// Get the negotiated OCPP version for a charge point
+    pub fn get_version(&self, charge_point_id: &str) -> Option<OcppVersion> {
+        self.sessions
+            .get(charge_point_id)
+            .map(|conn| conn.ocpp_version)
     }
 }
 

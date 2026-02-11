@@ -1,6 +1,9 @@
-//! OCPP 1.6 WebSocket server
+//! Unified OCPP WebSocket server
 //!
 //! Accepts charge-point connections at `ws://<host>:<port>/ocpp/{charge_point_id}`.
+//! During the WebSocket handshake the server negotiates the OCPP version
+//! via the `Sec-WebSocket-Protocol` header and creates the appropriate
+//! version-specific adapter for each connection.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -13,45 +16,47 @@ use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
 
+use crate::application::commands::SharedCommandSender;
 use crate::application::events::{
     ChargePointConnectedEvent, ChargePointDisconnectedEvent, Event, SharedEventBus,
 };
-use crate::application::handlers::OcppHandler;
-use crate::application::services::{BillingService, ChargePointService};
-use crate::application::commands::{SharedCommandSender, create_command_sender};
-use crate::application::session::{SharedSessionRegistry, SessionRegistry};
+use crate::application::session::SharedSessionRegistry;
 use crate::config::Config;
+use crate::domain::OcppVersion;
 use crate::support::shutdown::ShutdownSignal;
 
-/// OCPP 1.6 WebSocket subprotocol
-const OCPP_SUBPROTOCOL: &str = "ocpp1.6";
+use super::negotiator::ProtocolAdapters;
 
-/// OCPP WebSocket Server
+/// Unified OCPP WebSocket Server
+///
+/// Supports multiple OCPP versions through protocol adapters.
+/// During handshake, the server negotiates the best OCPP version
+/// with each charge point and creates the appropriate adapter.
 pub struct OcppServer {
     config: Config,
+    protocol_adapters: Arc<ProtocolAdapters>,
     session_registry: SharedSessionRegistry,
-    service: Arc<ChargePointService>,
-    billing_service: Arc<BillingService>,
     command_sender: SharedCommandSender,
     shutdown_signal: Option<ShutdownSignal>,
     event_bus: SharedEventBus,
 }
 
 impl OcppServer {
+    /// Create a new unified OCPP WebSocket server.
+    ///
+    /// Dependencies are injected — the session registry, command sender,
+    /// and protocol adapters are created externally (in `main`).
     pub fn new(
         config: Config,
-        service: Arc<ChargePointService>,
-        billing_service: Arc<BillingService>,
+        protocol_adapters: Arc<ProtocolAdapters>,
+        session_registry: SharedSessionRegistry,
+        command_sender: SharedCommandSender,
         event_bus: SharedEventBus,
     ) -> Self {
-        let session_registry = Arc::new(SessionRegistry::new());
-        let command_sender = create_command_sender(session_registry.clone());
-
         Self {
             config,
+            protocol_adapters,
             session_registry,
-            service,
-            billing_service,
             command_sender,
             shutdown_signal: None,
             event_bus,
@@ -69,7 +74,15 @@ impl OcppServer {
         let addr = self.config.address();
         let listener = TcpListener::bind(&addr).await?;
 
-        info!("🔌 OCPP 1.6 Central System started on ws://{}", addr);
+        let negotiator = self.protocol_adapters.build_negotiator();
+        let supported: Vec<String> = negotiator
+            .supported_versions()
+            .iter()
+            .map(|v| v.to_string())
+            .collect();
+
+        info!("🔌 OCPP Central System started on ws://{}", addr);
+        info!("   Supported protocols: {}", supported.join(", "));
         info!(
             "   Charge points should connect to: ws://{}/ocpp/{{charge_point_id}}",
             addr
@@ -120,8 +133,7 @@ impl OcppServer {
 
     fn spawn_connection(&self, stream: TcpStream, addr: SocketAddr) {
         let session_registry = self.session_registry.clone();
-        let service = self.service.clone();
-        let billing_service = self.billing_service.clone();
+        let protocol_adapters = self.protocol_adapters.clone();
         let command_sender = self.command_sender.clone();
         let shutdown = self.shutdown_signal.clone();
         let event_bus = self.event_bus.clone();
@@ -131,8 +143,7 @@ impl OcppServer {
                 stream,
                 addr,
                 session_registry,
-                service,
-                billing_service,
+                protocol_adapters,
                 command_sender,
                 shutdown,
                 event_bus,
@@ -166,18 +177,6 @@ impl OcppServer {
 
         info!("✅ WebSocket server shutdown complete");
     }
-
-    pub fn session_registry(&self) -> &SharedSessionRegistry {
-        &self.session_registry
-    }
-
-    pub fn get_session_registry(&self) -> SharedSessionRegistry {
-        self.session_registry.clone()
-    }
-
-    pub fn command_sender(&self) -> &SharedCommandSender {
-        &self.command_sender
-    }
 }
 
 /// Extract charge point ID from WebSocket request path.
@@ -204,8 +203,7 @@ async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
     session_registry: SharedSessionRegistry,
-    service: Arc<ChargePointService>,
-    billing_service: Arc<BillingService>,
+    protocol_adapters: Arc<ProtocolAdapters>,
     command_sender: SharedCommandSender,
     shutdown: Option<ShutdownSignal>,
     event_bus: SharedEventBus,
@@ -213,6 +211,9 @@ async fn handle_connection(
     info!("New connection from: {}", addr);
 
     let mut charge_point_id: Option<String> = None;
+    let mut negotiated_version: Option<OcppVersion> = None;
+
+    let negotiator = protocol_adapters.build_negotiator();
 
     let ws_stream = tokio_tungstenite::accept_hdr_async(
         stream,
@@ -228,24 +229,30 @@ async fn handle_connection(
 
             info!("Requested subprotocols: {}", requested_protocols);
 
-            let supports_ocpp16 = requested_protocols
-                .split(',')
-                .map(|s| s.trim())
-                .any(|p| p == OCPP_SUBPROTOCOL);
-
-            if supports_ocpp16 {
+            // ── Version negotiation ────────────────────────
+            if let Some(version) = negotiator.negotiate(requested_protocols) {
                 response.headers_mut().insert(
                     "Sec-WebSocket-Protocol",
-                    OCPP_SUBPROTOCOL.parse().unwrap(),
+                    version.subprotocol().parse().unwrap(),
                 );
-                info!("OCPP 1.6 subprotocol accepted");
+                info!("{} subprotocol accepted", version);
+                negotiated_version = Some(version);
             } else if !requested_protocols.is_empty() {
                 warn!(
-                    "Client does not support ocpp1.6, requested: {}",
+                    "No mutually supported OCPP subprotocol, requested: {}",
                     requested_protocols
                 );
+                // Fall back to the lowest version we support (V16 if available)
+                negotiated_version = negotiator.supported_versions().last().copied();
+                if let Some(fallback) = negotiated_version {
+                    warn!("Falling back to {} (no subprotocol negotiated)", fallback);
+                }
+            } else {
+                // No subprotocol header at all — default to V16
+                negotiated_version = Some(OcppVersion::V16);
             }
 
+            // ── Extract charge point ID from path ──────────
             if let Some(id) = extract_charge_point_id(path) {
                 charge_point_id = Some(id);
                 Ok(response)
@@ -258,28 +265,32 @@ async fn handle_connection(
     .await?;
 
     let charge_point_id = charge_point_id.unwrap_or_else(|| format!("CP_{}", addr.port()));
+    let version = negotiated_version.unwrap_or(OcppVersion::V16);
 
-    info!("[{}] Connected from {}", charge_point_id, addr);
+    info!("[{}] Connected from {} via {}", charge_point_id, addr, version);
+
+    // ── Create version-specific adapter ────────────────────
+    let adapter = protocol_adapters
+        .create_adapter(version, charge_point_id.clone())
+        .ok_or_else(|| {
+            format!(
+                "No adapter registered for {} — cannot handle connection",
+                version
+            )
+        })?;
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
-    session_registry.register(&charge_point_id, tx);
+    // ── Register session with version ──────────────────────
+    session_registry.register(&charge_point_id, tx, version);
 
     event_bus.publish(Event::ChargePointConnected(ChargePointConnectedEvent {
         charge_point_id: charge_point_id.clone(),
         timestamp: Utc::now(),
         remote_addr: Some(addr.to_string()),
     }));
-
-    let handler = Arc::new(OcppHandler::new(
-        charge_point_id.clone(),
-        service,
-        billing_service,
-        command_sender.clone(),
-        event_bus.clone(),
-    ));
 
     // Outgoing message sender task
     let cp_id_send = charge_point_id.clone();
@@ -303,7 +314,8 @@ async fn handle_connection(
                     info!("[{}] <- {}", cp_id_recv, text);
                     session_reg.touch(&cp_id_recv);
 
-                    if let Some(response) = handler.handle(&text).await {
+                    // Dispatch to the version-specific adapter
+                    if let Some(response) = adapter.handle_message(&text).await {
                         if let Err(e) = session_reg.send_to(&cp_id_recv, response) {
                             error!("[{}] Failed to send response: {}", cp_id_recv, e);
                             break;

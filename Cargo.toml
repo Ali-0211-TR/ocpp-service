@@ -59,5 +59,6 @@ hex = "0.4"
 # Configuration
 toml = "0.8"
 dirs-next = "2.0"
+rust-ocpp = { version = "3.0.4", features = ["v1_6", "v2_0_1"] }
 
 

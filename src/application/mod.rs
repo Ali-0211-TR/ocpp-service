@@ -2,6 +2,7 @@ pub mod commands;
 pub mod dto;
 pub mod events;
 pub mod handlers;
+pub mod ports;
 pub mod services;
 pub mod session;
 
@@ -14,5 +15,6 @@ pub use commands::{
 };
 pub use events::{create_event_bus, Event, EventBus, EventSubscriber, SharedEventBus};
 pub use handlers::OcppHandler;
+pub use ports::{OcppAdapterFactory, OcppInboundPort, ProtocolError};
 pub use services::{BillingService, ChargePointService, HeartbeatMonitor};
 pub use session::{SessionRegistry, SharedSessionRegistry};

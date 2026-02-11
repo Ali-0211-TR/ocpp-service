@@ -9,10 +9,13 @@ use sea_orm_migration::MigratorTrait;
 use tracing::{error, info, warn};
 
 use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
+use texnouz_ocpp::application::commands::create_command_sender;
+use texnouz_ocpp::application::session::SessionRegistry;
 use texnouz_ocpp::config::AppConfig;
+use texnouz_ocpp::domain::OcppVersion;
 use texnouz_ocpp::infrastructure::crypto::jwt::JwtConfig;
 use texnouz_ocpp::infrastructure::database::migrator::Migrator;
-use texnouz_ocpp::interfaces::ws::OcppServer;
+use texnouz_ocpp::interfaces::ws::{OcppServer, ProtocolAdapters, V16AdapterFactory};
 use texnouz_ocpp::support::shutdown::ShutdownCoordinator;
 use texnouz_ocpp::{
     create_api_router, create_event_bus, default_config_path, init_database, Config, DatabaseConfig,
@@ -95,6 +98,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_bus = create_event_bus();
     info!("🔔 Event bus initialized for real-time notifications");
 
+    // ── Session & Command infrastructure (shared across WS + API) ──
+    let session_registry = SessionRegistry::shared();
+    let command_sender = create_command_sender(session_registry.clone());
+
+    // ── Protocol adapters (one per supported OCPP version) ─────
+    let v16_factory = Arc::new(V16AdapterFactory::new(
+        service.clone(),
+        billing_service.clone(),
+        command_sender.clone(),
+        event_bus.clone(),
+    ));
+
+    let mut protocol_adapters = ProtocolAdapters::new();
+    protocol_adapters.register(OcppVersion::V16, v16_factory);
+    // Future: protocol_adapters.register(OcppVersion::V201, v201_factory);
+    // Future: protocol_adapters.register(OcppVersion::V21,  v21_factory);
+    let protocol_adapters = Arc::new(protocol_adapters);
+
     // Initialize shutdown coordinator
     let shutdown = ShutdownCoordinator::new(app_cfg.server.shutdown_timeout);
     let shutdown_signal = shutdown.signal();
@@ -102,14 +123,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start listening for shutdown signals (SIGTERM, SIGINT)
     shutdown.start_signal_listener();
 
-    // Create OCPP WebSocket server with shutdown support
-    let server =
-        OcppServer::new(config.clone(), service.clone(), billing_service, event_bus.clone())
-            .with_shutdown(shutdown_signal.clone());
-
-    // Get session registry and command sender for API
-    let session_registry = server.get_session_registry();
-    let command_sender = server.command_sender().clone();
+    // Create unified OCPP WebSocket server with shutdown support
+    let server = OcppServer::new(
+        config.clone(),
+        protocol_adapters,
+        session_registry.clone(),
+        command_sender.clone(),
+        event_bus.clone(),
+    )
+    .with_shutdown(shutdown_signal.clone());
 
     // Start Heartbeat Monitor
     let heartbeat_monitor = Arc::new(HeartbeatMonitor::new(
