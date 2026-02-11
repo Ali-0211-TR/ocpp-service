@@ -1,7 +1,8 @@
 //! Get Local List Version command
 
-use ocpp_rs::v16::call::{Action, GetLocalListVersion};
-use ocpp_rs::v16::call_result::ResultPayload;
+use rust_ocpp::v1_6::messages::get_local_list_version::{
+    GetLocalListVersionRequest, GetLocalListVersionResponse,
+};
 use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
@@ -12,11 +13,16 @@ pub async fn get_local_list_version(
 ) -> Result<i32, CommandError> {
     info!(charge_point_id, "GetLocalListVersion");
 
-    let action = Action::GetLocalListVersion(GetLocalListVersion {});
-    let result = command_sender.send_command(charge_point_id, action).await?;
+    let request = GetLocalListVersionRequest {};
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {}", e)))?;
 
-    match result {
-        ResultPayload::GetLocalListVersion(resp) => Ok(resp.list_version),
-        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
-    }
+    let result = command_sender
+        .send_command(charge_point_id, "GetLocalListVersion", payload)
+        .await?;
+
+    let response: GetLocalListVersionResponse = serde_json::from_value(result)
+        .map_err(|e| CommandError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+    Ok(response.list_version)
 }

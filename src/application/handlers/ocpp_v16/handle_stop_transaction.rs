@@ -1,33 +1,39 @@
 //! StopTransaction handler
 
-use ocpp_rs::v16::call::StopTransaction;
-use ocpp_rs::v16::call_result::{EmptyResponses, GenericIdTagInfo, ResultPayload};
-use ocpp_rs::v16::data_types::IdTagInfo;
-use ocpp_rs::v16::enums::ParsedGenericStatus;
+use rust_ocpp::v1_6::messages::stop_transaction::{
+    StopTransactionRequest, StopTransactionResponse,
+};
+use rust_ocpp::v1_6::types::{AuthorizationStatus, IdTagInfo};
+use serde_json::Value;
 use tracing::{error, info};
 
 use crate::application::events::{Event, TransactionStoppedEvent};
-use crate::application::OcppHandler;
+use crate::application::OcppHandlerV16;
 
-pub async fn handle_stop_transaction(
-    handler: &OcppHandler,
-    payload: StopTransaction,
-) -> ResultPayload {
+pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) -> Value {
+    let req: StopTransactionRequest = match serde_json::from_value(payload.clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            error!(charge_point_id = handler.charge_point_id.as_str(), error = %e, "Failed to parse StopTransaction");
+            return serde_json::json!({});
+        }
+    };
+
     info!(
         charge_point_id = handler.charge_point_id.as_str(),
-        transaction_id = payload.transaction_id,
-        meter_stop = payload.meter_stop,
+        transaction_id = req.transaction_id,
+        meter_stop = req.meter_stop,
         "StopTransaction"
     );
 
-    let transaction_id = payload.transaction_id as i32;
+    let transaction_id = req.transaction_id;
 
     let stop_result = handler
         .service
         .stop_transaction(
             transaction_id,
-            payload.meter_stop as i32,
-            payload.reason.as_ref().map(|r| format!("{:?}", r)),
+            req.meter_stop,
+            req.reason.as_ref().map(|r| format!("{:?}", r)),
         )
         .await;
 
@@ -63,13 +69,13 @@ pub async fn handle_stop_transaction(
                 handler.event_bus.publish(Event::TransactionStopped(TransactionStoppedEvent {
                     charge_point_id: handler.charge_point_id.clone(),
                     transaction_id,
-                    id_tag: payload.id_tag.clone(),
-                    meter_stop: payload.meter_stop as i32,
+                    id_tag: req.id_tag.clone(),
+                    meter_stop: req.meter_stop,
                     energy_consumed_kwh: energy_kwh,
                     total_cost,
                     currency,
-                    reason: payload.reason.as_ref().map(|r| format!("{:?}", r)),
-                    timestamp: payload.timestamp.inner(),
+                    reason: req.reason.as_ref().map(|r| format!("{:?}", r)),
+                    timestamp: req.timestamp,
                 }));
             }
             Err(e) => {
@@ -83,25 +89,25 @@ pub async fn handle_stop_transaction(
                 handler.event_bus.publish(Event::TransactionStopped(TransactionStoppedEvent {
                     charge_point_id: handler.charge_point_id.clone(),
                     transaction_id,
-                    id_tag: payload.id_tag.clone(),
-                    meter_stop: payload.meter_stop as i32,
+                    id_tag: req.id_tag.clone(),
+                    meter_stop: req.meter_stop,
                     energy_consumed_kwh: 0.0,
                     total_cost: 0.0,
                     currency: "UZS".to_string(),
-                    reason: payload.reason.as_ref().map(|r| format!("{:?}", r)),
-                    timestamp: payload.timestamp.inner(),
+                    reason: req.reason.as_ref().map(|r| format!("{:?}", r)),
+                    timestamp: req.timestamp,
                 }));
             }
         }
     }
 
-    ResultPayload::PossibleEmptyResponse(EmptyResponses::GenericIdTagInfoResponse(
-        GenericIdTagInfo {
-            id_tag_info: Some(IdTagInfo {
-                status: ParsedGenericStatus::Accepted,
-                expiry_date: None,
-                parent_id_tag: None,
-            }),
-        },
-    ))
+    let response = StopTransactionResponse {
+        id_tag_info: Some(IdTagInfo {
+            status: AuthorizationStatus::Accepted,
+            expiry_date: None,
+            parent_id_tag: None,
+        }),
+    };
+
+    serde_json::to_value(&response).unwrap_or_default()
 }

@@ -1,8 +1,7 @@
 //! Reset command
 
-use ocpp_rs::v16::call::{Action, Reset};
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::enums::{ParsedGenericStatus, ResetType};
+use rust_ocpp::v1_6::messages::reset::{ResetRequest, ResetResponse};
+use rust_ocpp::v1_6::types::ResetRequestStatus;
 use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
@@ -13,29 +12,28 @@ pub enum ResetKind {
     Hard,
 }
 
-impl From<ResetKind> for ResetType {
-    fn from(kind: ResetKind) -> Self {
-        match kind {
-            ResetKind::Soft => ResetType::Soft,
-            ResetKind::Hard => ResetType::Hard,
-        }
-    }
-}
-
 pub async fn reset(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     reset_type: ResetKind,
-) -> Result<ParsedGenericStatus, CommandError> {
+) -> Result<String, CommandError> {
     info!(charge_point_id, ?reset_type, "Reset");
 
-    let action = Action::Reset(Reset {
-        reset_type: reset_type.into(),
-    });
-    let result = command_sender.send_command(charge_point_id, action).await?;
+    let kind = match reset_type {
+        ResetKind::Soft => ResetRequestStatus::Soft,
+        ResetKind::Hard => ResetRequestStatus::Hard,
+    };
 
-    match result {
-        ResultPayload::PossibleStatusResponse(sr) => Ok(sr.get_status().clone()),
-        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
-    }
+    let request = ResetRequest { kind };
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {}", e)))?;
+
+    let result = command_sender
+        .send_command(charge_point_id, "Reset", payload)
+        .await?;
+
+    let response: ResetResponse = serde_json::from_value(result)
+        .map_err(|e| CommandError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+    Ok(format!("{:?}", response.status))
 }

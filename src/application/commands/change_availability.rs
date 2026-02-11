@@ -1,8 +1,9 @@
 //! Change Availability command
 
-use ocpp_rs::v16::call::{Action, ChangeAvailability};
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::enums::{AvailabilityType, ParsedGenericStatus};
+use rust_ocpp::v1_6::messages::change_availability::{
+    ChangeAvailabilityRequest, ChangeAvailabilityResponse,
+};
+use rust_ocpp::v1_6::types::AvailabilityType;
 use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
@@ -13,31 +14,32 @@ pub enum Availability {
     Inoperative,
 }
 
-impl From<Availability> for AvailabilityType {
-    fn from(availability: Availability) -> Self {
-        match availability {
-            Availability::Operative => AvailabilityType::Operative,
-            Availability::Inoperative => AvailabilityType::Inoperative,
-        }
-    }
-}
-
 pub async fn change_availability(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     connector_id: u32,
     availability: Availability,
-) -> Result<ParsedGenericStatus, CommandError> {
+) -> Result<String, CommandError> {
     info!(charge_point_id, connector_id, ?availability, "ChangeAvailability");
 
-    let action = Action::ChangeAvailability(ChangeAvailability {
-        connector_id,
-        availability_type: availability.into(),
-    });
-    let result = command_sender.send_command(charge_point_id, action).await?;
+    let kind = match availability {
+        Availability::Operative => AvailabilityType::Operative,
+        Availability::Inoperative => AvailabilityType::Inoperative,
+    };
 
-    match result {
-        ResultPayload::PossibleStatusResponse(sr) => Ok(sr.get_status().clone()),
-        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
-    }
+    let request = ChangeAvailabilityRequest {
+        connector_id,
+        kind,
+    };
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {}", e)))?;
+
+    let result = command_sender
+        .send_command(charge_point_id, "ChangeAvailability", payload)
+        .await?;
+
+    let response: ChangeAvailabilityResponse = serde_json::from_value(result)
+        .map_err(|e| CommandError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+    Ok(format!("{:?}", response.status))
 }

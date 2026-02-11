@@ -15,7 +15,7 @@ use texnouz_ocpp::config::AppConfig;
 use texnouz_ocpp::domain::OcppVersion;
 use texnouz_ocpp::infrastructure::crypto::jwt::JwtConfig;
 use texnouz_ocpp::infrastructure::database::migrator::Migrator;
-use texnouz_ocpp::interfaces::ws::{OcppServer, ProtocolAdapters, V16AdapterFactory};
+use texnouz_ocpp::interfaces::ws::{OcppServer, ProtocolAdapters, V16AdapterFactory, V201AdapterFactory};
 use texnouz_ocpp::support::shutdown::ShutdownCoordinator;
 use texnouz_ocpp::{
     create_api_router, create_event_bus, default_config_path, init_database, Config, DatabaseConfig,
@@ -112,7 +112,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut protocol_adapters = ProtocolAdapters::new();
     protocol_adapters.register(OcppVersion::V16, v16_factory);
-    // Future: protocol_adapters.register(OcppVersion::V201, v201_factory);
+
+    // ── OCPP 2.0.1 adapter ────────────────────────────────────
+    let v201_factory = Arc::new(V201AdapterFactory::new(
+        service.clone(),
+        billing_service.clone(),
+        command_sender.clone(),
+        event_bus.clone(),
+    ));
+    protocol_adapters.register(OcppVersion::V201, v201_factory);
     // Future: protocol_adapters.register(OcppVersion::V21,  v21_factory);
     let protocol_adapters = Arc::new(protocol_adapters);
 

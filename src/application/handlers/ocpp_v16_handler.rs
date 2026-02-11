@@ -1,20 +1,21 @@
 //! OCPP 1.6 message handler
+//!
+//! Parses raw OCPP-J frames, dispatches to action handlers,
+//! and serializes responses using `rust_ocpp::v1_6` types.
 
 use std::sync::Arc;
 
-use ocpp_rs::v16::call::Call;
-use ocpp_rs::v16::call_error::CallError;
-use ocpp_rs::v16::call_result::CallResult;
-use ocpp_rs::v16::parse::{self, Message};
+use serde_json::Value;
 use tracing::{error, info, warn};
 
 use crate::application::commands::CommandSender;
 use crate::application::events::SharedEventBus;
-use crate::application::handlers::ocpp::action_matcher;
+use crate::application::handlers::ocpp_v16::action_matcher;
 use crate::application::services::{BillingService, ChargePointService};
+use crate::support::ocpp_frame::OcppFrame;
 
 /// Handler for OCPP 1.6 messages
-pub struct OcppHandler {
+pub struct OcppHandlerV16 {
     pub charge_point_id: String,
     pub service: Arc<ChargePointService>,
     pub billing_service: Arc<BillingService>,
@@ -22,7 +23,7 @@ pub struct OcppHandler {
     pub event_bus: SharedEventBus,
 }
 
-impl OcppHandler {
+impl OcppHandlerV16 {
     pub fn new(
         charge_point_id: impl Into<String>,
         service: Arc<ChargePointService>,
@@ -44,57 +45,68 @@ impl OcppHandler {
             charge_point_id = self.charge_point_id.as_str(),
             "Received raw message: {}", text
         );
-        match parse::deserialize_to_message(text) {
-            Ok(Message::Call(call)) => self.handle_call(call).await,
-            Ok(Message::CallResult(result)) => {
-                self.handle_call_result(result).await;
-                None
-            }
-            Ok(Message::CallError(error)) => {
-                self.handle_call_error(error).await;
-                None
-            }
+
+        let frame = match OcppFrame::parse(text) {
+            Ok(f) => f,
             Err(e) => {
                 warn!(
                     charge_point_id = self.charge_point_id.as_str(),
-                    error = ?e,
+                    error = %e,
                     "Standard parser failed, trying fallback sanitizer..."
                 );
                 match Self::sanitize_and_parse(text) {
-                    Some(Message::Call(call)) => {
+                    Some(f) => {
                         info!(
                             charge_point_id = self.charge_point_id.as_str(),
                             "Fallback parser succeeded"
                         );
-                        self.handle_call(call).await
-                    }
-                    Some(Message::CallResult(result)) => {
-                        self.handle_call_result(result).await;
-                        None
-                    }
-                    Some(Message::CallError(error)) => {
-                        self.handle_call_error(error).await;
-                        None
+                        f
                     }
                     None => {
                         error!(
                             charge_point_id = self.charge_point_id.as_str(),
-                            error = ?e,
+                            error = %e,
                             raw = text,
                             "Failed to parse OCPP message even after sanitization"
                         );
-                        None
+                        return None;
                     }
                 }
+            }
+        };
+
+        match frame {
+            OcppFrame::Call {
+                unique_id,
+                action,
+                payload,
+            } => self.handle_call(&unique_id, &action, payload).await,
+
+            OcppFrame::CallResult { unique_id, payload } => {
+                self.handle_call_result(&unique_id, payload).await;
+                None
+            }
+
+            OcppFrame::CallError {
+                unique_id,
+                error_code,
+                error_description,
+                ..
+            } => {
+                self.handle_call_error(&unique_id, &error_code, &error_description)
+                    .await;
+                None
             }
         }
     }
 
-    fn sanitize_and_parse(text: &str) -> Option<Message> {
+    /// Sanitize malformed OCPP-J frames and re-parse.
+    fn sanitize_and_parse(text: &str) -> Option<OcppFrame> {
         let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
         let arr = value.as_array_mut()?;
         let msg_type = arr.first()?.as_u64()?;
 
+        // CallResult: ensure at least 3 elements
         if msg_type == 3 {
             while arr.len() < 3 {
                 arr.push(serde_json::json!({}));
@@ -104,12 +116,16 @@ impl OcppHandler {
             }
         }
 
+        // CallError: ensure at least 5 elements
         if msg_type == 4 {
             let unique_id = arr.get(1).cloned().unwrap_or(serde_json::json!("unknown"));
             while arr.len() < 5 {
                 match arr.len() {
                     2 => {
-                        warn!("Sanitizer: CallError missing errorCode for {}, defaulting to NotImplemented", unique_id);
+                        warn!(
+                            "Sanitizer: CallError missing errorCode for {}, defaulting to NotImplemented",
+                            unique_id
+                        );
                         arr.push(serde_json::json!("NotImplemented"));
                     }
                     3 => arr.push(serde_json::json!("")),
@@ -119,6 +135,7 @@ impl OcppHandler {
             }
         }
 
+        // Call: fix common null-field issues
         if msg_type == 2 && arr.len() >= 4 {
             let action = arr.get(2)?.as_str()?.to_string();
             let payload = arr.get_mut(3)?;
@@ -127,23 +144,38 @@ impl OcppHandler {
                 match action.as_str() {
                     "StopTransaction" => {
                         if obj.get("transactionId").map_or(false, |v| v.is_null()) {
-                            obj.insert("transactionId".to_string(), serde_json::Value::Number(0.into()));
+                            obj.insert(
+                                "transactionId".to_string(),
+                                serde_json::Value::Number(0.into()),
+                            );
                         }
                         if obj.get("meterStop").map_or(false, |v| v.is_null()) {
-                            obj.insert("meterStop".to_string(), serde_json::Value::Number(0.into()));
+                            obj.insert(
+                                "meterStop".to_string(),
+                                serde_json::Value::Number(0.into()),
+                            );
                         }
                     }
                     "StartTransaction" => {
                         if obj.get("meterStart").map_or(false, |v| v.is_null()) {
-                            obj.insert("meterStart".to_string(), serde_json::Value::Number(0.into()));
+                            obj.insert(
+                                "meterStart".to_string(),
+                                serde_json::Value::Number(0.into()),
+                            );
                         }
                         if obj.get("connectorId").map_or(false, |v| v.is_null()) {
-                            obj.insert("connectorId".to_string(), serde_json::Value::Number(0.into()));
+                            obj.insert(
+                                "connectorId".to_string(),
+                                serde_json::Value::Number(0.into()),
+                            );
                         }
                     }
                     "MeterValues" | "StatusNotification" => {
                         if obj.get("connectorId").map_or(false, |v| v.is_null()) {
-                            obj.insert("connectorId".to_string(), serde_json::Value::Number(0.into()));
+                            obj.insert(
+                                "connectorId".to_string(),
+                                serde_json::Value::Number(0.into()),
+                            );
                         }
                     }
                     _ => {}
@@ -152,56 +184,54 @@ impl OcppHandler {
         }
 
         let sanitized = serde_json::to_string(&value).ok()?;
-        parse::deserialize_to_message(&sanitized).ok()
+        OcppFrame::parse(&sanitized).ok()
     }
 
-    async fn handle_call(&self, call: Call) -> Option<String> {
-        let message_id = call.unique_id.clone();
-
+    async fn handle_call(
+        &self,
+        unique_id: &str,
+        action: &str,
+        payload: Value,
+    ) -> Option<String> {
         info!(
             charge_point_id = self.charge_point_id.as_str(),
-            action = ?call.payload.as_ref(),
+            action,
             "Received Call"
         );
 
-        let result_payload = action_matcher(self, call.payload).await;
-        let response = Message::CallResult(CallResult::new(message_id, result_payload));
+        let response_payload = action_matcher(self, action, &payload).await;
 
-        match parse::serialize_message(&response) {
-            Ok(json) => Some(json),
-            Err(e) => {
-                error!(
-                    charge_point_id = self.charge_point_id.as_str(),
-                    error = ?e,
-                    "Failed to serialize response"
-                );
-                None
-            }
-        }
+        let response = OcppFrame::CallResult {
+            unique_id: unique_id.to_string(),
+            payload: response_payload,
+        };
+
+        Some(response.serialize())
     }
 
-    async fn handle_call_result(&self, result: CallResult) {
+    async fn handle_call_result(&self, unique_id: &str, payload: Value) {
         info!(
             charge_point_id = self.charge_point_id.as_str(),
-            message_id = result.unique_id.as_str(),
+            message_id = unique_id,
             "Received CallResult"
         );
         self.command_sender
-            .handle_response(&self.charge_point_id, &result.unique_id, result.payload);
+            .handle_response(&self.charge_point_id, unique_id, payload);
     }
 
-    async fn handle_call_error(&self, error: CallError) {
+    async fn handle_call_error(
+        &self,
+        unique_id: &str,
+        error_code: &str,
+        error_description: &str,
+    ) {
         warn!(
             charge_point_id = self.charge_point_id.as_str(),
-            message_id = error.unique_id.as_str(),
-            error_code = error.error_code.as_str(),
+            message_id = unique_id,
+            error_code,
             "Received CallError"
         );
-        self.command_sender.handle_error(
-            &self.charge_point_id,
-            &error.unique_id,
-            &error.error_code,
-            &error.error_description,
-        );
+        self.command_sender
+            .handle_error(&self.charge_point_id, unique_id, error_code, error_description);
     }
 }

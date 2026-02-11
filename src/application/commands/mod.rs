@@ -17,15 +17,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
+use serde_json::Value;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-use ocpp_rs::v16::call::{Action, Call};
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::parse::{self, Message};
-
 use crate::application::session::SharedSessionRegistry;
+use crate::support::ocpp_frame::OcppFrame;
 
 pub use change_availability::{change_availability, Availability};
 pub use change_configuration::change_configuration;
@@ -43,7 +41,7 @@ const RESPONSE_TIMEOUT_SECS: u64 = 30;
 
 struct PendingRequest {
     action_name: String,
-    response_sender: oneshot::Sender<Result<ResultPayload, CommandError>>,
+    response_sender: oneshot::Sender<Result<Value, CommandError>>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,18 +90,26 @@ impl CommandSender {
         format!("CS-{}", id)
     }
 
+    /// Send an OCPP command to a charge point.
+    ///
+    /// `action` is the OCPP action name (e.g. "RemoteStopTransaction").
+    /// `payload` is the JSON payload for the call.
+    ///
+    /// Returns the response payload as a `serde_json::Value`.
     pub async fn send_command(
         &self,
         charge_point_id: &str,
-        action: Action,
-    ) -> Result<ResultPayload, CommandError> {
+        action: &str,
+        payload: Value,
+    ) -> Result<Value, CommandError> {
         let message_id = self.generate_message_id();
-        let action_name = action.as_ref().to_string();
 
-        let call = Call::new(message_id.clone(), action);
-        let message = Message::Call(call);
-        let json = parse::serialize_message(&message)
-            .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {:?}", e)))?;
+        let frame = OcppFrame::Call {
+            unique_id: message_id.clone(),
+            action: action.to_string(),
+            payload,
+        };
+        let json = frame.serialize();
 
         let (tx, rx) = oneshot::channel();
 
@@ -111,14 +117,14 @@ impl CommandSender {
         self.pending_requests.insert(
             key.clone(),
             PendingRequest {
-                action_name: action_name.clone(),
+                action_name: action.to_string(),
                 response_sender: tx,
             },
         );
 
         info!(
             charge_point_id,
-            action = action_name.as_str(),
+            action,
             message_id = message_id.as_str(),
             "Sending command"
         );
@@ -138,7 +144,7 @@ impl CommandSender {
                 self.pending_requests.remove(&key);
                 warn!(
                     charge_point_id,
-                    action = action_name.as_str(),
+                    action,
                     message_id = message_id.as_str(),
                     "Command timed out"
                 );
@@ -151,7 +157,7 @@ impl CommandSender {
         &self,
         charge_point_id: &str,
         message_id: &str,
-        payload: ResultPayload,
+        payload: Value,
     ) {
         let key = (charge_point_id.to_string(), message_id.to_string());
         if let Some((_, pending)) = self.pending_requests.remove(&key) {

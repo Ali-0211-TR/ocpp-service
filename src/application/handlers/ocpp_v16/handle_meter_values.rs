@@ -1,29 +1,37 @@
 //! MeterValues handler
 
-use ocpp_rs::v16::call::MeterValues;
-use ocpp_rs::v16::call_result::{EmptyResponse, EmptyResponses, ResultPayload};
-use ocpp_rs::v16::enums::{Measurand, UnitOfMeasure};
+use rust_ocpp::v1_6::messages::meter_values::{MeterValuesRequest, MeterValuesResponse};
+use rust_ocpp::v1_6::types::{Measurand, UnitOfMeasure};
+use serde_json::Value;
 use tracing::{error, info, warn};
 
 use crate::application::events::{Event, MeterValuesEvent};
-use crate::application::OcppHandler;
+use crate::application::OcppHandlerV16;
 
-pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) -> ResultPayload {
+pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> Value {
+    let req: MeterValuesRequest = match serde_json::from_value(payload.clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            error!(charge_point_id = handler.charge_point_id.as_str(), error = %e, "Failed to parse MeterValues");
+            return serde_json::json!({});
+        }
+    };
+
     info!(
         charge_point_id = handler.charge_point_id.as_str(),
-        connector_id = payload.connector_id,
-        transaction_id = ?payload.transaction_id,
-        samples = payload.meter_value.len(),
+        connector_id = req.connector_id,
+        transaction_id = ?req.transaction_id,
+        samples = req.meter_value.len(),
         "MeterValues"
     );
 
-    let transaction_id = payload.transaction_id.map(|id| id as i32);
+    let transaction_id = req.transaction_id;
 
     let mut energy_wh: Option<f64> = None;
     let mut power_w: Option<f64> = None;
     let mut soc: Option<f64> = None;
 
-    for meter_value in &payload.meter_value {
+    for meter_value in &req.meter_value {
         for sampled in &meter_value.sampled_value {
             let value: f64 = match sampled.value.parse() {
                 Ok(v) => v,
@@ -94,14 +102,16 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
                         "Charging limit reached! Sending RemoteStop."
                     );
 
-                    let action = ocpp_rs::v16::call::Action::RemoteStopTransaction(
-                        ocpp_rs::v16::call::RemoteStopTransaction {
-                            transaction_id: tx_id,
-                        },
-                    );
+                    let remote_stop_payload = serde_json::json!({
+                        "transactionId": tx_id,
+                    });
                     if let Err(e) = handler
                         .command_sender
-                        .send_command(&handler.charge_point_id, action)
+                        .send_command(
+                            &handler.charge_point_id,
+                            "RemoteStopTransaction",
+                            remote_stop_payload,
+                        )
                         .await
                     {
                         error!(
@@ -136,7 +146,7 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
             .service
             .get_active_transaction_for_connector(
                 &handler.charge_point_id,
-                payload.connector_id,
+                req.connector_id,
             )
             .await
         {
@@ -149,18 +159,18 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
 
     handler.event_bus.publish(Event::MeterValuesReceived(MeterValuesEvent {
         charge_point_id: handler.charge_point_id.clone(),
-        connector_id: payload.connector_id,
+        connector_id: req.connector_id,
         transaction_id,
         energy_wh,
         energy_consumed_wh,
         power_w,
         soc,
-        timestamp: payload
+        timestamp: req
             .meter_value
             .first()
-            .map(|mv| mv.timestamp.inner())
+            .map(|mv| mv.timestamp)
             .unwrap_or_else(chrono::Utc::now),
     }));
 
-    ResultPayload::PossibleEmptyResponse(EmptyResponses::EmptyResponse(EmptyResponse {}))
+    serde_json::to_value(&MeterValuesResponse {}).unwrap_or_default()
 }

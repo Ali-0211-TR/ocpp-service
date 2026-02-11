@@ -14,7 +14,8 @@ pub use commands::{
     DataTransferResult, ResetKind, SharedCommandSender, TriggerType,
 };
 pub use events::{create_event_bus, Event, EventBus, EventSubscriber, SharedEventBus};
-pub use handlers::OcppHandler;
+pub use handlers::OcppHandlerV16;
+pub use handlers::OcppHandlerV201;
 pub use ports::{OcppAdapterFactory, OcppInboundPort, ProtocolError};
 pub use services::{BillingService, ChargePointService, HeartbeatMonitor};
 pub use session::{SessionRegistry, SharedSessionRegistry};

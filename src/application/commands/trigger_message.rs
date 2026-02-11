@@ -1,8 +1,7 @@
 //! Trigger Message command
 
-use ocpp_rs::v16::call::{Action, TriggerMessage};
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::enums::{MessageTrigger, ParsedGenericStatus};
+use rust_ocpp::v1_6::messages::trigger_message::{TriggerMessageRequest, TriggerMessageResponse};
+use rust_ocpp::v1_6::types::MessageTrigger;
 use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
@@ -17,9 +16,9 @@ pub enum TriggerType {
     StatusNotification,
 }
 
-impl From<TriggerType> for MessageTrigger {
-    fn from(trigger: TriggerType) -> Self {
-        match trigger {
+impl TriggerType {
+    fn to_message_trigger(self) -> MessageTrigger {
+        match self {
             TriggerType::BootNotification => MessageTrigger::BootNotification,
             TriggerType::DiagnosticsStatusNotification => {
                 MessageTrigger::DiagnosticsStatusNotification
@@ -37,17 +36,22 @@ pub async fn trigger_message(
     charge_point_id: &str,
     requested_message: TriggerType,
     connector_id: Option<u32>,
-) -> Result<ParsedGenericStatus, CommandError> {
+) -> Result<String, CommandError> {
     info!(charge_point_id, ?requested_message, ?connector_id, "TriggerMessage");
 
-    let action = Action::TriggerMessage(TriggerMessage {
-        requested_message: requested_message.into(),
+    let request = TriggerMessageRequest {
+        requested_message: requested_message.to_message_trigger(),
         connector_id,
-    });
-    let result = command_sender.send_command(charge_point_id, action).await?;
+    };
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {}", e)))?;
 
-    match result {
-        ResultPayload::PossibleStatusResponse(sr) => Ok(sr.get_status().clone()),
-        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
-    }
+    let result = command_sender
+        .send_command(charge_point_id, "TriggerMessage", payload)
+        .await?;
+
+    let response: TriggerMessageResponse = serde_json::from_value(result)
+        .map_err(|e| CommandError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+    Ok(format!("{:?}", response.status))
 }

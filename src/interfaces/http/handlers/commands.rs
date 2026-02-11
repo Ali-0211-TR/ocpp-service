@@ -66,8 +66,7 @@ pub async fn remote_start(
     )
     .await
     {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
 
             if accepted {
@@ -140,8 +139,7 @@ pub async fn remote_stop(
     )
     .await
     {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
 
             if accepted {
@@ -248,8 +246,7 @@ pub async fn reset_charge_point(
     };
 
     match commands::reset(&state.command_sender, &charge_point_id, reset_type).await {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
@@ -297,8 +294,7 @@ pub async fn unlock(
     match commands::unlock_connector(&state.command_sender, &charge_point_id, request.connector_id)
         .await
     {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             let unlocked = status_str.contains("Unlocked");
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
@@ -356,8 +352,7 @@ pub async fn change_avail(
     )
     .await
     {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
             let scheduled = status_str.contains("Scheduled");
             Ok(Json(ApiResponse::success(CommandResponse {
@@ -432,8 +427,7 @@ pub async fn trigger_msg(
     )
     .await
     {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
             let not_implemented = status_str.contains("NotImplemented");
             Ok(Json(ApiResponse::success(CommandResponse {
@@ -570,8 +564,7 @@ pub async fn change_config(
     )
     .await
     {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
                 message: Some(format!(
@@ -652,8 +645,7 @@ pub async fn clear_auth_cache(
     }
 
     match commands::clear_cache(&state.command_sender, &charge_point_id).await {
-        Ok(status) => {
-            let status_str = format!("{:?}", status);
+        Ok(status_str) => {
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
                 message: Some("Authorization cache cleared".to_string()),
@@ -706,7 +698,7 @@ pub async fn data_transfer_handler(
     .await
     {
         Ok(result) => Ok(Json(ApiResponse::success(DataTransferResponse {
-            status: format!("{:?}", result.status),
+            status: result.status,
             data: result.data,
         }))),
         Err(e) => Err((

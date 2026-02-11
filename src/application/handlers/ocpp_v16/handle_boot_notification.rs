@@ -1,19 +1,31 @@
 //! BootNotification handler
 
 use chrono::Utc;
-use ocpp_rs::v16::call::BootNotification;
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::data_types::DateTimeWrapper;
-use ocpp_rs::v16::enums::ParsedGenericStatus;
-use tracing::info;
+use rust_ocpp::v1_6::messages::boot_notification::{
+    BootNotificationRequest, BootNotificationResponse,
+};
+use rust_ocpp::v1_6::types::RegistrationStatus;
+use tracing::{error, info};
 
 use crate::application::events::{BootNotificationEvent, Event};
-use crate::application::OcppHandler;
+use crate::application::OcppHandlerV16;
 
 pub async fn handle_boot_notification(
-    handler: &OcppHandler,
-    payload: BootNotification,
-) -> ResultPayload {
+    handler: &OcppHandlerV16,
+    payload: &serde_json::Value,
+) -> serde_json::Value {
+    let payload: BootNotificationRequest = match serde_json::from_value(payload.clone()) {
+        Ok(p) => p,
+        Err(e) => {
+            error!(
+                charge_point_id = handler.charge_point_id.as_str(),
+                error = %e,
+                "Failed to deserialize BootNotificationRequest"
+            );
+            return serde_json::json!({});
+        }
+    };
+
     info!(
         charge_point_id = handler.charge_point_id.as_str(),
         vendor = payload.charge_point_vendor.as_str(),
@@ -46,9 +58,11 @@ pub async fn handle_boot_notification(
         timestamp: Utc::now(),
     }));
 
-    ResultPayload::BootNotification(ocpp_rs::v16::call_result::BootNotification {
-        current_time: DateTimeWrapper::new(Utc::now()),
+    let response = BootNotificationResponse {
+        current_time: Utc::now(),
         interval: 300,
-        status: ParsedGenericStatus::Accepted,
-    })
+        status: RegistrationStatus::Accepted,
+    };
+
+    serde_json::to_value(&response).unwrap_or_default()
 }

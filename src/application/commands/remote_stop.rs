@@ -1,8 +1,8 @@
 //! Remote Stop Transaction command
 
-use ocpp_rs::v16::call::{Action, RemoteStopTransaction};
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::enums::ParsedGenericStatus;
+use rust_ocpp::v1_6::messages::remote_stop_transaction::{
+    RemoteStopTransactionRequest, RemoteStopTransactionResponse,
+};
 use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
@@ -11,14 +11,19 @@ pub async fn remote_stop_transaction(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     transaction_id: i32,
-) -> Result<ParsedGenericStatus, CommandError> {
+) -> Result<String, CommandError> {
     info!(charge_point_id, transaction_id, "RemoteStopTransaction");
 
-    let action = Action::RemoteStopTransaction(RemoteStopTransaction { transaction_id });
-    let result = command_sender.send_command(charge_point_id, action).await?;
+    let request = RemoteStopTransactionRequest { transaction_id };
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {}", e)))?;
 
-    match result {
-        ResultPayload::PossibleStatusResponse(sr) => Ok(sr.get_status().clone()),
-        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
-    }
+    let result = command_sender
+        .send_command(charge_point_id, "RemoteStopTransaction", payload)
+        .await?;
+
+    let response: RemoteStopTransactionResponse = serde_json::from_value(result)
+        .map_err(|e| CommandError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+    Ok(format!("{:?}", response.status))
 }

@@ -1,8 +1,8 @@
 //! Unlock Connector command
 
-use ocpp_rs::v16::call::{Action, UnlockConnector};
-use ocpp_rs::v16::call_result::ResultPayload;
-use ocpp_rs::v16::enums::ParsedGenericStatus;
+use rust_ocpp::v1_6::messages::unlock_connector::{
+    UnlockConnectorRequest, UnlockConnectorResponse,
+};
 use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
@@ -11,14 +11,19 @@ pub async fn unlock_connector(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     connector_id: u32,
-) -> Result<ParsedGenericStatus, CommandError> {
+) -> Result<String, CommandError> {
     info!(charge_point_id, connector_id, "UnlockConnector");
 
-    let action = Action::UnlockConnector(UnlockConnector { connector_id });
-    let result = command_sender.send_command(charge_point_id, action).await?;
+    let request = UnlockConnectorRequest { connector_id };
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| CommandError::SendFailed(format!("Serialization failed: {}", e)))?;
 
-    match result {
-        ResultPayload::PossibleStatusResponse(sr) => Ok(sr.get_status().clone()),
-        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
-    }
+    let result = command_sender
+        .send_command(charge_point_id, "UnlockConnector", payload)
+        .await?;
+
+    let response: UnlockConnectorResponse = serde_json::from_value(result)
+        .map_err(|e| CommandError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
+
+    Ok(format!("{:?}", response.status))
 }

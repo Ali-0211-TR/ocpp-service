@@ -15,7 +15,6 @@ name = "ocpp-service"
 path = "src/main.rs"
 
 [dependencies]
-ocpp_rs = "0.2.5"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
@@ -60,5 +59,6 @@ hex = "0.4"
 toml = "0.8"
 dirs-next = "2.0"
 rust-ocpp = { version = "3.0.4", features = ["v1_6", "v2_0_1"] }
+rust_decimal = "1"
 
 

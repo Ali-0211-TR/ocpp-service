@@ -1,7 +1,7 @@
-//! OCPP 1.6 inbound adapter and factory
+//! OCPP 2.0.1 inbound adapter and factory
 //!
-//! `V16InboundAdapter` implements `OcppInboundPort` by delegating to the
-//! existing `OcppHandler`, which handles all OCPP 1.6 message parsing,
+//! `V201InboundAdapter` implements `OcppInboundPort` by delegating to
+//! `OcppHandlerV201`, which handles all OCPP 2.0.1 message parsing,
 //! action routing, and response serialization via the `rust_ocpp` crate.
 
 use std::sync::Arc;
@@ -10,23 +10,23 @@ use async_trait::async_trait;
 
 use crate::application::commands::{CommandSender, SharedCommandSender};
 use crate::application::events::SharedEventBus;
-use crate::application::handlers::OcppHandlerV16;
+use crate::application::handlers::OcppHandlerV201;
 use crate::application::ports::{OcppAdapterFactory, OcppInboundPort};
 use crate::application::services::{BillingService, ChargePointService};
 use crate::domain::OcppVersion;
 
-// ── V16InboundAdapter ──────────────────────────────────────────
+// ── V201InboundAdapter ─────────────────────────────────────────
 
-/// OCPP 1.6 inbound adapter.
+/// OCPP 2.0.1 inbound adapter.
 ///
-/// Wraps the existing `OcppHandler` to satisfy the `OcppInboundPort` trait.
+/// Wraps `OcppHandlerV201` to satisfy the `OcppInboundPort` trait.
 /// One instance is created per charge-point connection.
-pub struct V16InboundAdapter {
-    handler: Arc<OcppHandlerV16>,
+pub struct V201InboundAdapter {
+    handler: Arc<OcppHandlerV201>,
     cp_id: String,
 }
 
-impl V16InboundAdapter {
+impl V201InboundAdapter {
     pub fn new(
         charge_point_id: String,
         service: Arc<ChargePointService>,
@@ -34,7 +34,7 @@ impl V16InboundAdapter {
         command_sender: Arc<CommandSender>,
         event_bus: SharedEventBus,
     ) -> Self {
-        let handler = Arc::new(OcppHandlerV16::new(
+        let handler = Arc::new(OcppHandlerV201::new(
             charge_point_id.clone(),
             service,
             billing_service,
@@ -49,13 +49,13 @@ impl V16InboundAdapter {
 }
 
 #[async_trait]
-impl OcppInboundPort for V16InboundAdapter {
+impl OcppInboundPort for V201InboundAdapter {
     async fn handle_message(&self, text: &str) -> Option<String> {
         self.handler.handle(text).await
     }
 
     fn version(&self) -> OcppVersion {
-        OcppVersion::V16
+        OcppVersion::V201
     }
 
     fn charge_point_id(&self) -> &str {
@@ -63,20 +63,20 @@ impl OcppInboundPort for V16InboundAdapter {
     }
 }
 
-// ── V16AdapterFactory ──────────────────────────────────────────
+// ── V201AdapterFactory ─────────────────────────────────────────
 
-/// Factory for creating OCPP 1.6 inbound adapters.
+/// Factory for creating OCPP 2.0.1 inbound adapters.
 ///
 /// Holds shared references to application services that each per-connection
 /// adapter needs.
-pub struct V16AdapterFactory {
+pub struct V201AdapterFactory {
     service: Arc<ChargePointService>,
     billing_service: Arc<BillingService>,
     command_sender: SharedCommandSender,
     event_bus: SharedEventBus,
 }
 
-impl V16AdapterFactory {
+impl V201AdapterFactory {
     pub fn new(
         service: Arc<ChargePointService>,
         billing_service: Arc<BillingService>,
@@ -92,12 +92,12 @@ impl V16AdapterFactory {
     }
 }
 
-impl OcppAdapterFactory for V16AdapterFactory {
+impl OcppAdapterFactory for V201AdapterFactory {
     fn create_inbound_adapter(
         &self,
         charge_point_id: String,
     ) -> Box<dyn OcppInboundPort> {
-        Box::new(V16InboundAdapter::new(
+        Box::new(V201InboundAdapter::new(
             charge_point_id,
             self.service.clone(),
             self.billing_service.clone(),
@@ -107,6 +107,6 @@ impl OcppAdapterFactory for V16AdapterFactory {
     }
 
     fn version(&self) -> OcppVersion {
-        OcppVersion::V16
+        OcppVersion::V201
     }
 }
