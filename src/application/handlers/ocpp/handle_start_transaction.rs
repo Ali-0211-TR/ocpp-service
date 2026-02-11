@@ -1,25 +1,31 @@
 //! StartTransaction handler
 
-use log::{error, info};
 use ocpp_rs::v16::call::StartTransaction;
 use ocpp_rs::v16::call_result::ResultPayload;
 use ocpp_rs::v16::data_types::IdTagInfo;
 use ocpp_rs::v16::enums::ParsedGenericStatus;
+use tracing::{error, info};
 
+use crate::application::events::{Event, TransactionStartedEvent};
 use crate::application::OcppHandler;
-use crate::notifications::{Event, TransactionStartedEvent};
 
 pub async fn handle_start_transaction(
     handler: &OcppHandler,
     payload: StartTransaction,
 ) -> ResultPayload {
     info!(
-        "[{}] StartTransaction - Connector: {}, IdTag: {}, MeterStart: {}",
-        handler.charge_point_id, payload.connector_id, payload.id_tag, payload.meter_start
+        charge_point_id = handler.charge_point_id.as_str(),
+        connector_id = payload.connector_id,
+        id_tag = payload.id_tag.as_str(),
+        meter_start = payload.meter_start,
+        "StartTransaction"
     );
 
-    // Authorize the ID tag
-    let is_valid = handler.service.authorize(&payload.id_tag).await.unwrap_or(false);
+    let is_valid = handler
+        .service
+        .authorize(&payload.id_tag)
+        .await
+        .unwrap_or(false);
 
     if !is_valid {
         return ResultPayload::StartTransaction(ocpp_rs::v16::call_result::StartTransaction {
@@ -32,7 +38,6 @@ pub async fn handle_start_transaction(
         });
     }
 
-    // Start transaction
     match handler
         .service
         .start_transaction(
@@ -44,7 +49,6 @@ pub async fn handle_start_transaction(
         .await
     {
         Ok(transaction) => {
-            // Publish transaction started event
             handler.event_bus.publish(Event::TransactionStarted(TransactionStartedEvent {
                 charge_point_id: handler.charge_point_id.clone(),
                 connector_id: payload.connector_id,
@@ -64,7 +68,11 @@ pub async fn handle_start_transaction(
             })
         }
         Err(e) => {
-            error!("[{}] Failed to start transaction: {}", handler.charge_point_id, e);
+            error!(
+                charge_point_id = handler.charge_point_id.as_str(),
+                error = %e,
+                "Failed to start transaction"
+            );
             ResultPayload::StartTransaction(ocpp_rs::v16::call_result::StartTransaction {
                 transaction_id: 0,
                 id_tag_info: IdTagInfo {

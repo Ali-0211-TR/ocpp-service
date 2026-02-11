@@ -1,20 +1,28 @@
 //! Authorize handler
 
 use chrono::Utc;
-use log::info;
 use ocpp_rs::v16::call::Authorize;
 use ocpp_rs::v16::call_result::{EmptyResponses, GenericIdTagInfo, ResultPayload};
 use ocpp_rs::v16::data_types::IdTagInfo;
 use ocpp_rs::v16::enums::ParsedGenericStatus;
+use tracing::info;
 
+use crate::application::events::{AuthorizationEvent, Event};
 use crate::application::OcppHandler;
-use crate::notifications::{AuthorizationEvent, Event};
 
 pub async fn handle_authorize(handler: &OcppHandler, payload: Authorize) -> ResultPayload {
-    info!("[{}] Authorize - IdTag: {}", handler.charge_point_id, payload.id_tag);
+    info!(
+        charge_point_id = handler.charge_point_id.as_str(),
+        id_tag = payload.id_tag.as_str(),
+        "Authorize"
+    );
 
-    // Get the proper authorization status from the database
-    let auth_status = handler.service.get_auth_status(&payload.id_tag).await.ok().flatten();
+    let auth_status = handler
+        .service
+        .get_auth_status(&payload.id_tag)
+        .await
+        .ok()
+        .flatten();
 
     let status = match auth_status.as_deref() {
         Some("Accepted") => ParsedGenericStatus::Accepted,
@@ -24,7 +32,6 @@ pub async fn handle_authorize(handler: &OcppHandler, payload: Authorize) -> Resu
         Some("Invalid") | Some(_) | None => ParsedGenericStatus::Invalid,
     };
 
-    // Publish authorization event
     handler.event_bus.publish(Event::AuthorizationResult(AuthorizationEvent {
         charge_point_id: handler.charge_point_id.clone(),
         id_tag: payload.id_tag.clone(),

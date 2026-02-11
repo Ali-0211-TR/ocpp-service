@@ -13,7 +13,7 @@ use crate::domain::{
     BillingStatus, ChargePoint, ChargePointStatus, ChargingLimitType, Connector, ConnectorStatus, DomainError, DomainResult,
     Tariff, TariffType, Transaction, TransactionBilling, TransactionStatus,
 };
-use crate::infrastructure::storage::Storage;
+use crate::domain::Storage;
 
 /// Database storage implementation
 pub struct DatabaseStorage {
@@ -136,7 +136,7 @@ fn string_to_billing_status(s: &str) -> BillingStatus {
 }
 
 fn db_error_to_domain(e: DbErr) -> DomainError {
-    DomainError::StorageError(e.to_string())
+    DomainError::Validation(format!("Database error: {}", e))
 }
 
 fn transaction_model_to_domain(t: transaction::Model) -> Transaction {
@@ -172,7 +172,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
 
         if existing.is_some() {
-            return Err(DomainError::ChargePointAlreadyExists(cp.id));
+            return Err(DomainError::Conflict(format!("Charge point '{}' already exists", cp.id)));
         }
 
         // Insert charge point
@@ -272,7 +272,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
 
         if existing.is_none() {
-            return Err(DomainError::ChargePointNotFound(cp.id));
+            return Err(DomainError::NotFound { entity: "ChargePoint", field: "id", value: cp.id });
         }
 
         // Update charge point
@@ -327,7 +327,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
 
         if result.rows_affected == 0 {
-            return Err(DomainError::ChargePointNotFound(id.to_string()));
+            return Err(DomainError::NotFound { entity: "ChargePoint", field: "id", value: id.to_string() });
         }
 
         Ok(())
@@ -392,7 +392,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
 
         if existing.is_none() {
-            return Err(DomainError::ChargePointNotFound(id.to_string()));
+            return Err(DomainError::NotFound { entity: "ChargePoint", field: "id", value: id.to_string() });
         }
 
         // Update only status and updated_at
@@ -475,7 +475,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
 
         let Some(existing) = existing else {
-            return Err(DomainError::TransactionNotFound(tx.id));
+            return Err(DomainError::NotFound { entity: "Transaction", field: "id", value: tx.id.to_string() });
         };
 
         let energy = tx.energy_consumed();
@@ -570,7 +570,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
 
         let Some(existing) = existing else {
-            return Err(DomainError::TransactionNotFound(transaction_id));
+            return Err(DomainError::NotFound { entity: "Transaction", field: "id", value: transaction_id.to_string() });
         };
 
         let mut active: transaction::ActiveModel = existing.into();
@@ -599,7 +599,7 @@ impl Storage for DatabaseStorage {
         let tag = id_tag::Entity::find_by_id(id_tag_value)
             .one(&self.db)
             .await
-            .map_err(|e| DomainError::StorageError(e.to_string()))?;
+            .map_err(|e| DomainError::Validation(format!("Database error: {}", e)))?;
 
         match tag {
             Some(t) => {
@@ -632,7 +632,7 @@ impl Storage for DatabaseStorage {
         let tag = id_tag::Entity::find_by_id(id_tag_value)
             .one(&self.db)
             .await
-            .map_err(|e| DomainError::StorageError(e.to_string()))?;
+            .map_err(|e| DomainError::Validation(format!("Database error: {}", e)))?;
 
         match tag {
             Some(t) => {
@@ -680,7 +680,7 @@ impl Storage for DatabaseStorage {
         };
         
         new_tag.insert(&self.db).await
-            .map_err(|e| DomainError::StorageError(e.to_string()))?;
+            .map_err(|e| DomainError::Validation(format!("Database error: {}", e)))?;
         
         Ok(())
     }
@@ -689,7 +689,7 @@ impl Storage for DatabaseStorage {
         id_tag::Entity::delete_by_id(id_tag_value)
             .exec(&self.db)
             .await
-            .map_err(|e| DomainError::StorageError(e.to_string()))?;
+            .map_err(|e| DomainError::Validation(format!("Database error: {}", e)))?;
         
         Ok(())
     }
@@ -773,7 +773,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
         
         if existing.is_none() {
-            return Err(DomainError::StorageError(format!("Tariff {} not found", t.id)));
+            return Err(DomainError::NotFound { entity: "Tariff", field: "id", value: t.id.to_string() });
         }
         
         let model = tariff::ActiveModel {
@@ -806,7 +806,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
         
         if result.rows_affected == 0 {
-            return Err(DomainError::StorageError(format!("Tariff {} not found", id)));
+            return Err(DomainError::NotFound { entity: "Tariff", field: "id", value: id.to_string() });
         }
         
         Ok(())
@@ -821,7 +821,7 @@ impl Storage for DatabaseStorage {
             .map_err(db_error_to_domain)?;
         
         let Some(tx) = existing else {
-            return Err(DomainError::TransactionNotFound(billing.transaction_id));
+            return Err(DomainError::NotFound { entity: "Transaction", field: "id", value: billing.transaction_id.to_string() });
         };
         
         let mut model: transaction::ActiveModel = tx.into();

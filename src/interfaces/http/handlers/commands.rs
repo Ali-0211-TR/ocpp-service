@@ -1,0 +1,717 @@
+//! Remote command API handlers
+
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    Json,
+};
+use chrono::Utc;
+use tracing::{error, info, warn};
+
+use crate::application::commands::{self, CommandSender};
+use crate::application::dto::{
+    ApiResponse, ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse,
+    DataTransferRequest, DataTransferResponse, LocalListVersionResponse, RemoteStartRequest,
+    RemoteStopRequest, ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
+};
+use crate::application::events::{Event, SharedEventBus, TransactionStoppedEvent};
+use crate::application::services::ChargePointService;
+use crate::application::session::SharedSessionRegistry;
+use crate::domain::{ChargingLimitType, Storage};
+
+/// Command handler state
+#[derive(Clone)]
+pub struct CommandAppState {
+    pub storage: Arc<dyn Storage>,
+    pub session_registry: SharedSessionRegistry,
+    pub command_sender: Arc<CommandSender>,
+    pub event_bus: SharedEventBus,
+    pub charge_point_service: Arc<ChargePointService>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/remote-start",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = RemoteStartRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn remote_start(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<RemoteStartRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::remote_start_transaction(
+        &state.command_sender,
+        &charge_point_id,
+        &request.id_tag,
+        request.connector_id,
+    )
+    .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let accepted = status_str.contains("Accepted");
+
+            if accepted {
+                if let (Some(limit_type_str), Some(limit_value)) =
+                    (&request.limit_type, request.limit_value)
+                {
+                    if let Some(limit_type) = ChargingLimitType::from_str(limit_type_str) {
+                        let connector_id = request.connector_id.unwrap_or(1);
+                        state.charge_point_service.set_pending_limit(
+                            &charge_point_id,
+                            connector_id,
+                            limit_type,
+                            limit_value,
+                        );
+                        info!(
+                            "Set pending charging limit for {}:{} - {} = {}",
+                            charge_point_id, connector_id, limit_type_str, limit_value
+                        );
+                    }
+                }
+            }
+
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Remote start accepted".to_string())
+                } else {
+                    Some("Remote start rejected by charge point".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/remote-stop",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = RemoteStopRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn remote_stop(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<RemoteStopRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::remote_stop_transaction(
+        &state.command_sender,
+        &charge_point_id,
+        request.transaction_id,
+    )
+    .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let accepted = status_str.contains("Accepted");
+
+            if accepted {
+                let transaction_id = request.transaction_id;
+                match state.storage.get_transaction(transaction_id).await {
+                    Ok(Some(mut tx)) if tx.is_active() => {
+                        let meter_stop = tx.meter_stop.unwrap_or(tx.meter_start);
+                        tx.stop(meter_stop, Some("RemoteStop".to_string()));
+
+                        if let Err(e) = state.storage.update_transaction(tx.clone()).await {
+                            error!(
+                                "[{}] Failed to update transaction {} after RemoteStop: {}",
+                                charge_point_id, transaction_id, e
+                            );
+                        } else {
+                            info!(
+                                "[{}] Transaction {} stopped proactively after RemoteStop accepted",
+                                charge_point_id, transaction_id
+                            );
+
+                            let energy_wh = tx.energy_consumed().unwrap_or(0);
+                            state.event_bus.publish(Event::TransactionStopped(
+                                TransactionStoppedEvent {
+                                    charge_point_id: charge_point_id.clone(),
+                                    transaction_id,
+                                    id_tag: Some(tx.id_tag.clone()),
+                                    meter_stop,
+                                    energy_consumed_kwh: energy_wh as f64 / 1000.0,
+                                    total_cost: 0.0,
+                                    currency: "UZS".to_string(),
+                                    reason: Some("RemoteStop".to_string()),
+                                    timestamp: Utc::now(),
+                                },
+                            ));
+                        }
+                    }
+                    Ok(Some(_)) => {
+                        warn!(
+                            "[{}] Transaction {} already stopped",
+                            charge_point_id, transaction_id
+                        );
+                    }
+                    Ok(None) => {
+                        warn!(
+                            "[{}] Transaction {} not found for proactive stop",
+                            charge_point_id, transaction_id
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "[{}] Failed to get transaction {}: {}",
+                            charge_point_id, transaction_id, e
+                        );
+                    }
+                }
+            }
+
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Remote stop accepted".to_string())
+                } else {
+                    Some("Remote stop rejected by charge point".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/reset",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = ResetRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn reset_charge_point(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<ResetRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let reset_type = match request.reset_type.to_lowercase().as_str() {
+        "hard" => commands::ResetKind::Hard,
+        _ => commands::ResetKind::Soft,
+    };
+
+    match commands::reset(&state.command_sender, &charge_point_id, reset_type).await {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let accepted = status_str.contains("Accepted");
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Reset accepted".to_string())
+                } else {
+                    Some("Reset rejected by charge point".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/unlock-connector",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = UnlockConnectorRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn unlock(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<UnlockConnectorRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::unlock_connector(&state.command_sender, &charge_point_id, request.connector_id)
+        .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let unlocked = status_str.contains("Unlocked");
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if unlocked {
+                    Some("Connector unlocked".to_string())
+                } else {
+                    Some("Unlock failed".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/change-availability",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = ChangeAvailabilityRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn change_avail(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<ChangeAvailabilityRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let availability = match request.availability_type.to_lowercase().as_str() {
+        "inoperative" => commands::Availability::Inoperative,
+        _ => commands::Availability::Operative,
+    };
+
+    match commands::change_availability(
+        &state.command_sender,
+        &charge_point_id,
+        request.connector_id,
+        availability,
+    )
+    .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let accepted = status_str.contains("Accepted");
+            let scheduled = status_str.contains("Scheduled");
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Availability changed".to_string())
+                } else if scheduled {
+                    Some("Availability change scheduled".to_string())
+                } else {
+                    Some("Availability change rejected".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/trigger-message",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = TriggerMessageRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 400, description = "Unknown message type"),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn trigger_msg(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<TriggerMessageRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let message_type = match request.message.to_lowercase().as_str() {
+        "bootnotification" => commands::TriggerType::BootNotification,
+        "diagnosticsstatusnotification" => commands::TriggerType::DiagnosticsStatusNotification,
+        "firmwarestatusnotification" => commands::TriggerType::FirmwareStatusNotification,
+        "heartbeat" => commands::TriggerType::Heartbeat,
+        "metervalues" => commands::TriggerType::MeterValues,
+        "statusnotification" => commands::TriggerType::StatusNotification,
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(format!(
+                    "Unknown message trigger: {}",
+                    request.message
+                ))),
+            ));
+        }
+    };
+
+    match commands::trigger_message(
+        &state.command_sender,
+        &charge_point_id,
+        message_type,
+        request.connector_id,
+    )
+    .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            let accepted = status_str.contains("Accepted");
+            let not_implemented = status_str.contains("NotImplemented");
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Trigger message accepted".to_string())
+                } else if not_implemented {
+                    Some("Not implemented by charge point".to_string())
+                } else {
+                    Some("Trigger message rejected".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Query params for GetConfiguration
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct ConfigurationParams {
+    pub keys: Option<String>,
+}
+
+/// Single configuration key-value
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ConfigValue {
+    pub key: String,
+    pub value: Option<String>,
+    pub readonly: bool,
+}
+
+/// GetConfiguration response
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ConfigurationResponse {
+    pub configuration: Vec<ConfigValue>,
+    pub unknown_keys: Vec<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/configuration",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(
+        ("charge_point_id" = String, Path, description = "Charge point ID"),
+        ("keys" = Option<String>, Query, description = "Comma-separated keys")
+    ),
+    responses(
+        (status = 200, description = "Configuration", body = ApiResponse<ConfigurationResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn get_config(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Query(params): Query<ConfigurationParams>,
+) -> Result<
+    Json<ApiResponse<ConfigurationResponse>>,
+    (StatusCode, Json<ApiResponse<ConfigurationResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let keys: Option<Vec<String>> = params
+        .keys
+        .map(|k| k.split(',').map(|s| s.trim().to_string()).collect());
+
+    match commands::get_configuration(&state.command_sender, &charge_point_id, keys).await {
+        Ok(result) => {
+            let config_values: Vec<ConfigValue> = result
+                .configuration_key
+                .into_iter()
+                .map(|k| ConfigValue {
+                    key: k.key,
+                    value: k.value,
+                    readonly: k.readonly,
+                })
+                .collect();
+
+            Ok(Json(ApiResponse::success(ConfigurationResponse {
+                configuration: config_values,
+                unknown_keys: result.unknown_key,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/charge-points/{charge_point_id}/configuration",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = ChangeConfigurationRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn change_config(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<ChangeConfigurationRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::change_configuration(
+        &state.command_sender,
+        &charge_point_id,
+        request.key.clone(),
+        request.value.clone(),
+    )
+    .await
+    {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: Some(format!(
+                    "Configuration '{}' update processed",
+                    request.key
+                )),
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/local-list-version",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    responses(
+        (status = 200, description = "Local list version", body = ApiResponse<LocalListVersionResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn get_local_list_ver(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+) -> Result<
+    Json<ApiResponse<LocalListVersionResponse>>,
+    (StatusCode, Json<ApiResponse<LocalListVersionResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::get_local_list_version(&state.command_sender, &charge_point_id).await {
+        Ok(version) => Ok(Json(ApiResponse::success(LocalListVersionResponse {
+            list_version: version,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/clear-cache",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn clear_auth_cache(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::clear_cache(&state.command_sender, &charge_point_id).await {
+        Ok(status) => {
+            let status_str = format!("{:?}", status);
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: Some("Authorization cache cleared".to_string()),
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/data-transfer",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = DataTransferRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<DataTransferResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn data_transfer_handler(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<DataTransferRequest>,
+) -> Result<
+    Json<ApiResponse<DataTransferResponse>>,
+    (StatusCode, Json<ApiResponse<DataTransferResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match commands::data_transfer(
+        &state.command_sender,
+        &charge_point_id,
+        request.vendor_id,
+        request.message_id,
+        request.data,
+    )
+    .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(DataTransferResponse {
+            status: format!("{:?}", result.status),
+            data: result.data,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}

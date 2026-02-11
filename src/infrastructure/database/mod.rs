@@ -1,20 +1,18 @@
-//! Database infrastructure module
-//!
-//! Provides persistence layer using SeaORM with SQLite (easily switchable to PostgreSQL)
-
 pub mod entities;
 pub mod migrator;
+pub mod repositories;
+
 pub mod storage;
 
 pub use storage::DatabaseStorage;
 
-use log::info;
+use tracing::info;
 use sea_orm::{Database, DatabaseConnection};
 
 /// Database configuration
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
-    /// Database URL (e.g., "sqlite://./ocpp.db?mode=rwc" or "postgres://user:pass@host/db")
+    /// Database URL (e.g., "sqlite://./ocpp.db?mode=rwc")
     pub url: String,
 }
 
@@ -31,17 +29,6 @@ impl DatabaseConfig {
     pub fn sqlite(path: &str) -> Self {
         Self {
             url: format!("sqlite://{}?mode=rwc", path),
-        }
-    }
-
-    /// Create config for PostgreSQL
-    #[allow(dead_code)]
-    pub fn postgres(host: &str, port: u16, user: &str, password: &str, database: &str) -> Self {
-        Self {
-            url: format!(
-                "postgres://{}:{}@{}:{}/{}",
-                user, password, host, port, database
-            ),
         }
     }
 

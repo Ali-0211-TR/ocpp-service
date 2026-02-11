@@ -1,13 +1,12 @@
 //! Trigger Message command
 
-use log::info;
 use ocpp_rs::v16::call::{Action, TriggerMessage};
 use ocpp_rs::v16::call_result::ResultPayload;
 use ocpp_rs::v16::enums::{MessageTrigger, ParsedGenericStatus};
+use tracing::info;
 
 use super::{CommandError, SharedCommandSender};
 
-/// Message type to trigger
 #[derive(Debug, Clone, Copy)]
 pub enum TriggerType {
     BootNotification,
@@ -33,31 +32,22 @@ impl From<TriggerType> for MessageTrigger {
     }
 }
 
-/// Trigger a message from the charge point
 pub async fn trigger_message(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     requested_message: TriggerType,
     connector_id: Option<u32>,
 ) -> Result<ParsedGenericStatus, CommandError> {
-    info!(
-        "[{}] TriggerMessage - Message: {:?}, ConnectorId: {:?}",
-        charge_point_id, requested_message, connector_id
-    );
+    info!(charge_point_id, ?requested_message, ?connector_id, "TriggerMessage");
 
     let action = Action::TriggerMessage(TriggerMessage {
         requested_message: requested_message.into(),
         connector_id,
     });
-
     let result = command_sender.send_command(charge_point_id, action).await?;
 
     match result {
-        ResultPayload::PossibleStatusResponse(status_response) => {
-            Ok(status_response.get_status().clone())
-        }
-        _ => Err(CommandError::InvalidResponse(
-            "Unexpected response type".to_string(),
-        )),
+        ResultPayload::PossibleStatusResponse(sr) => Ok(sr.get_status().clone()),
+        _ => Err(CommandError::InvalidResponse("Unexpected response type".to_string())),
     }
 }

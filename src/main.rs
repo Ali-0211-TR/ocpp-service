@@ -5,40 +5,42 @@
 
 use std::sync::Arc;
 
-use log::{error, info, warn};
 use sea_orm_migration::MigratorTrait;
+use tracing::{error, info, warn};
 
 use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
-use texnouz_ocpp::auth::jwt::JwtConfig;
 use texnouz_ocpp::config::AppConfig;
+use texnouz_ocpp::infrastructure::crypto::jwt::JwtConfig;
 use texnouz_ocpp::infrastructure::database::migrator::Migrator;
-use texnouz_ocpp::infrastructure::server::ShutdownCoordinator;
-use texnouz_ocpp::infrastructure::{DatabaseStorage, OcppServer};
-use texnouz_ocpp::notifications::create_event_bus;
-use texnouz_ocpp::{create_api_router, default_config_path, init_database, Config, DatabaseConfig};
+use texnouz_ocpp::interfaces::ws::OcppServer;
+use texnouz_ocpp::support::shutdown::ShutdownCoordinator;
+use texnouz_ocpp::{
+    create_api_router, create_event_bus, default_config_path, init_database, Config, DatabaseConfig,
+    DatabaseStorage,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Load configuration ─────────────────────────────────────
-    // Allow overriding config path via OCPP_CONFIG env var (used by desktop app)
     let config_path = std::env::var("OCPP_CONFIG")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| default_config_path());
     let app_cfg = match AppConfig::load(&config_path) {
         Ok(cfg) => {
             // Initialize logging with configured level
-            env_logger::Builder::from_env(
-                env_logger::Env::default().default_filter_or(&cfg.logging.level),
-            )
-            .init();
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cfg.logging.level)),
+                )
+                .init();
             info!("Configuration loaded from {}", config_path.display());
             cfg
         }
         Err(e) => {
-            env_logger::Builder::from_env(
-                env_logger::Env::default().default_filter_or("info"),
-            )
-            .init();
+            tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::new("info"))
+                .init();
             error!("Failed to load config: {}. Using defaults.", e);
             AppConfig::default()
         }
@@ -83,8 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     create_default_admin(&db, &app_cfg).await;
 
     // Initialize storage (using database)
-    let storage: Arc<dyn texnouz_ocpp::infrastructure::Storage> =
-        Arc::new(DatabaseStorage::new(db.clone()));
+    let storage: Arc<dyn texnouz_ocpp::domain::Storage> = Arc::new(DatabaseStorage::new(db.clone()));
 
     // Initialize services
     let service = Arc::new(ChargePointService::new(storage.clone()));
@@ -102,24 +103,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shutdown.start_signal_listener();
 
     // Create OCPP WebSocket server with shutdown support
-    let server = OcppServer::new(config.clone(), service.clone(), billing_service, event_bus.clone())
-        .with_shutdown(shutdown_signal.clone());
+    let server =
+        OcppServer::new(config.clone(), service.clone(), billing_service, event_bus.clone())
+            .with_shutdown(shutdown_signal.clone());
 
-    // Get session manager and command sender for API
-    let session_manager = server.get_session_manager();
+    // Get session registry and command sender for API
+    let session_registry = server.get_session_registry();
     let command_sender = server.command_sender().clone();
 
     // Start Heartbeat Monitor
     let heartbeat_monitor = Arc::new(HeartbeatMonitor::new(
         storage.clone(),
-        session_manager.clone(),
+        session_registry.clone(),
     ));
     heartbeat_monitor.start(shutdown_signal.clone());
 
-    // Create REST API router (pass heartbeat_monitor for status endpoints)
+    // Create REST API router
     let api_router = create_api_router(
         storage,
-        session_manager,
+        session_registry,
         command_sender,
         db.clone(),
         jwt_config,
@@ -132,26 +134,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_addr = format!("{}:{}", app_cfg.server.api_host, app_cfg.server.api_port);
     let listener = tokio::net::TcpListener::bind(&api_addr).await?;
     info!("REST API server listening on http://{}", api_addr);
-    info!("Swagger UI available at http://{}/swagger-ui/", api_addr);
+    info!("Swagger UI available at http://{}/docs/", api_addr);
 
-    // Create REST API server with graceful shutdown
     let api_shutdown = shutdown_signal.clone();
-    let api_server = axum::serve(listener, api_router)
-        .with_graceful_shutdown(async move {
-            api_shutdown.wait().await;
-            info!("🛑 REST API server received shutdown signal");
-        });
+    let api_server = axum::serve(listener, api_router).with_graceful_shutdown(async move {
+        api_shutdown.wait().await;
+        info!("🛑 REST API server received shutdown signal");
+    });
 
     // Run both servers concurrently
     info!("🚀 All servers started. Press Ctrl+C to shutdown gracefully.");
-    
-    let ws_result = tokio::spawn(async move {
-        server.run().await
-    });
 
-    let api_result = tokio::spawn(async move {
-        api_server.await
-    });
+    let ws_result = tokio::spawn(async move { server.run().await });
+
+    let api_result = tokio::spawn(async move { api_server.await });
 
     // Wait for shutdown signal or server error
     tokio::select! {
@@ -173,8 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Perform final cleanup
     info!("🧹 Performing final cleanup...");
-    
-    // Close database connection
+
     if let Err(e) = db.close().await {
         warn!("Error closing database connection: {}", e);
     } else {
@@ -188,10 +183,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Create default admin user if no users exist
 async fn create_default_admin(db: &sea_orm::DatabaseConnection, app_cfg: &AppConfig) {
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
-    use texnouz_ocpp::auth::password::hash_password;
+    use texnouz_ocpp::infrastructure::crypto::password::hash_password;
     use texnouz_ocpp::infrastructure::database::entities::user::{self, UserRole};
 
-    // Check if any users exist
     let users_count = user::Entity::find().count(db).await.unwrap_or(0);
 
     if users_count == 0 {

@@ -1,25 +1,24 @@
 //! MeterValues handler
 
-use log::{error, info, warn};
 use ocpp_rs::v16::call::MeterValues;
 use ocpp_rs::v16::call_result::{EmptyResponse, EmptyResponses, ResultPayload};
 use ocpp_rs::v16::enums::{Measurand, UnitOfMeasure};
+use tracing::{error, info, warn};
 
+use crate::application::events::{Event, MeterValuesEvent};
 use crate::application::OcppHandler;
-use crate::notifications::{Event, MeterValuesEvent};
 
 pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) -> ResultPayload {
     info!(
-        "[{}] MeterValues - Connector: {}, TransactionId: {:?}, Values: {} samples",
-        handler.charge_point_id,
-        payload.connector_id,
-        payload.transaction_id,
-        payload.meter_value.len()
+        charge_point_id = handler.charge_point_id.as_str(),
+        connector_id = payload.connector_id,
+        transaction_id = ?payload.transaction_id,
+        samples = payload.meter_value.len(),
+        "MeterValues"
     );
 
     let transaction_id = payload.transaction_id.map(|id| id as i32);
 
-    // Parse all sampled values from all meter values
     let mut energy_wh: Option<f64> = None;
     let mut power_w: Option<f64> = None;
     let mut soc: Option<f64> = None;
@@ -31,23 +30,23 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
                 Err(_) => continue,
             };
 
-            // Determine measurand (default is Energy.Active.Import.Register)
-            let measurand = sampled.measurand.clone().unwrap_or(Measurand::EnergyActiveImportRegister);
+            let measurand = sampled
+                .measurand
+                .clone()
+                .unwrap_or(Measurand::EnergyActiveImportRegister);
 
             match measurand {
                 Measurand::EnergyActiveImportRegister => {
-                    // Convert to Wh if needed
                     let wh = match sampled.unit.as_ref() {
                         Some(UnitOfMeasure::KWh) => value * 1000.0,
-                        _ => value, // Default Wh
+                        _ => value,
                     };
                     energy_wh = Some(wh);
                 }
                 Measurand::PowerActiveImport => {
-                    // Convert to W if needed
                     let w = match sampled.unit.as_ref() {
                         Some(UnitOfMeasure::Kw) => value * 1000.0,
-                        _ => value, // Default W
+                        _ => value,
                     };
                     power_w = Some(w);
                 }
@@ -55,10 +54,11 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
                     soc = Some(value);
                 }
                 _ => {
-                    // Other measurands - log but don't process
                     info!(
-                        "[{}] MeterValues - Unhandled measurand: {:?} = {}",
-                        handler.charge_point_id, measurand, value
+                        charge_point_id = handler.charge_point_id.as_str(),
+                        ?measurand,
+                        value,
+                        "Unhandled measurand"
                     );
                 }
             }
@@ -66,11 +66,13 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
     }
 
     info!(
-        "[{}] MeterValues parsed - Energy: {:?} Wh, Power: {:?} W, SoC: {:?}%",
-        handler.charge_point_id, energy_wh, power_w, soc
+        charge_point_id = handler.charge_point_id.as_str(),
+        ?energy_wh,
+        ?power_w,
+        ?soc,
+        "MeterValues parsed"
     );
 
-    // Update transaction meter data in storage
     if let Some(tx_id) = transaction_id {
         match handler
             .service
@@ -83,14 +85,15 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
             .await
         {
             Ok(Some(tx)) => {
-                // Check if charging limit has been reached
                 if tx.is_limit_reached() {
                     warn!(
-                        "[{}] Charging limit reached for transaction {}! Limit: {:?} = {:?}. Sending RemoteStop.",
-                        handler.charge_point_id, tx_id, tx.limit_type, tx.limit_value
+                        charge_point_id = handler.charge_point_id.as_str(),
+                        transaction_id = tx_id,
+                        limit_type = ?tx.limit_type,
+                        limit_value = ?tx.limit_value,
+                        "Charging limit reached! Sending RemoteStop."
                     );
 
-                    // Trigger remote stop
                     let action = ocpp_rs::v16::call::Action::RemoteStopTransaction(
                         ocpp_rs::v16::call::RemoteStopTransaction {
                             transaction_id: tx_id,
@@ -102,34 +105,41 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
                         .await
                     {
                         error!(
-                            "[{}] Failed to send RemoteStop for limit-reached transaction {}: {:?}",
-                            handler.charge_point_id, tx_id, e
+                            charge_point_id = handler.charge_point_id.as_str(),
+                            transaction_id = tx_id,
+                            error = ?e,
+                            "Failed to send RemoteStop for limit-reached transaction"
                         );
                     }
                 }
             }
             Ok(None) => {
                 warn!(
-                    "[{}] Transaction {} not found when updating meter data",
-                    handler.charge_point_id, tx_id
+                    charge_point_id = handler.charge_point_id.as_str(),
+                    transaction_id = tx_id,
+                    "Transaction not found when updating meter data"
                 );
             }
             Err(e) => {
                 error!(
-                    "[{}] Failed to update meter data for transaction {}: {:?}",
-                    handler.charge_point_id, tx_id, e
+                    charge_point_id = handler.charge_point_id.as_str(),
+                    transaction_id = tx_id,
+                    error = ?e,
+                    "Failed to update meter data"
                 );
             }
         }
     }
 
-    // Calculate energy consumed if we have a transaction
     let energy_consumed_wh = if let (Some(_tx_id), Some(energy)) = (transaction_id, energy_wh) {
-        // Try to get meter_start from transaction for consumed calculation
-        match handler.service.get_active_transaction_for_connector(
-            &handler.charge_point_id,
-            payload.connector_id,
-        ).await {
+        match handler
+            .service
+            .get_active_transaction_for_connector(
+                &handler.charge_point_id,
+                payload.connector_id,
+            )
+            .await
+        {
             Ok(Some(tx)) => Some(energy - tx.meter_start as f64),
             _ => None,
         }
@@ -137,7 +147,6 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
         None
     };
 
-    // Publish event with all parsed values
     handler.event_bus.publish(Event::MeterValuesReceived(MeterValuesEvent {
         charge_point_id: handler.charge_point_id.clone(),
         connector_id: payload.connector_id,
@@ -146,7 +155,9 @@ pub async fn handle_meter_values(handler: &OcppHandler, payload: MeterValues) ->
         energy_consumed_wh,
         power_w,
         soc,
-        timestamp: payload.meter_value.first()
+        timestamp: payload
+            .meter_value
+            .first()
             .map(|mv| mv.timestamp.inner())
             .unwrap_or_else(chrono::Utc::now),
     }));

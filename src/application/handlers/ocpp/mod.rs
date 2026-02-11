@@ -1,10 +1,8 @@
 //! OCPP 1.6 Action handlers
-//! 
-//! Each action has its own handler module for clean separation of concerns.
 
-use log::warn;
 use ocpp_rs::v16::call::Action;
 use ocpp_rs::v16::call_result::ResultPayload;
+use tracing::warn;
 
 use crate::application::OcppHandler;
 
@@ -35,9 +33,6 @@ pub use handle_stop_transaction::handle_stop_transaction;
 /// Routes OCPP actions to their respective handlers
 pub async fn action_matcher(handler: &OcppHandler, action: Action) -> ResultPayload {
     match action {
-        // ===== Charge Point initiated (CP -> CS) =====
-        // Эти сообщения станция отправляет серверу
-        
         Action::Authorize(payload) => handle_authorize(handler, payload).await,
         Action::BootNotification(payload) => handle_boot_notification(handler, payload).await,
         Action::DataTransfer(payload) => handle_data_transfer(handler, payload).await,
@@ -53,47 +48,45 @@ pub async fn action_matcher(handler: &OcppHandler, action: Action) -> ResultPayl
             handle_security_event_notification(handler, payload).await
         }
         Action::StartTransaction(payload) => handle_start_transaction(handler, payload).await,
-        Action::StatusNotification(payload) => handle_status_notification(handler, payload).await,
+        Action::StatusNotification(payload) => {
+            handle_status_notification(handler, payload).await
+        }
         Action::StopTransaction(payload) => handle_stop_transaction(handler, payload).await,
 
-        // ===== Central System initiated (CS -> CP) =====
-        // Эти команды сервер отправляет станции, они не должны приходить от станции
-        // Если они пришли - это ошибка протокола, возвращаем NotImplemented
-        
-        Action::CancelReservation(_) |
-        Action::CertificateSigned(_) |
-        Action::ChangeAvailability(_) |
-        Action::ChangeConfiguration(_) |
-        Action::ClearCache(_) |
-        Action::ClearChargingProfile(_) |
-        Action::DeleteCertificate(_) |
-        Action::ExtendedTriggerMessage(_) |
-        Action::GetCompositeSchedule(_) |
-        Action::GetConfiguration(_) |
-        Action::GetDiagnostics(_) |
-        Action::GetInstalledCertificateIds(_) |
-        Action::GetLocalListVersion(_) |
-        Action::GetLog(_) |
-        Action::InstallCertificate(_) |
-        Action::LogStatusNotification(_) |
-        Action::RemoteStartTransaction(_) |
-        Action::RemoteStopTransaction(_) |
-        Action::ReserveNow(_) |
-        Action::Reset(_) |
-        Action::SendLocalList(_) |
-        Action::SetChargingProfile(_) |
-        Action::SignCertificate(_) |
-        Action::SignedFirmwareStatusNotification(_) |
-        Action::SignedUpdateFirmware(_) |
-        Action::TriggerMessage(_) |
-        Action::UnlockConnector(_) |
-        Action::UpdateFirmware(_) => {
+        // CS→CP actions should never arrive from a charge point
+        Action::CancelReservation(_)
+        | Action::CertificateSigned(_)
+        | Action::ChangeAvailability(_)
+        | Action::ChangeConfiguration(_)
+        | Action::ClearCache(_)
+        | Action::ClearChargingProfile(_)
+        | Action::DeleteCertificate(_)
+        | Action::ExtendedTriggerMessage(_)
+        | Action::GetCompositeSchedule(_)
+        | Action::GetConfiguration(_)
+        | Action::GetDiagnostics(_)
+        | Action::GetInstalledCertificateIds(_)
+        | Action::GetLocalListVersion(_)
+        | Action::GetLog(_)
+        | Action::InstallCertificate(_)
+        | Action::LogStatusNotification(_)
+        | Action::RemoteStartTransaction(_)
+        | Action::RemoteStopTransaction(_)
+        | Action::ReserveNow(_)
+        | Action::Reset(_)
+        | Action::SendLocalList(_)
+        | Action::SetChargingProfile(_)
+        | Action::SignCertificate(_)
+        | Action::SignedFirmwareStatusNotification(_)
+        | Action::SignedUpdateFirmware(_)
+        | Action::TriggerMessage(_)
+        | Action::UnlockConnector(_)
+        | Action::UpdateFirmware(_) => {
             warn!(
-                "[{}] Received CS->CP action from charge point (protocol error): {:?}",
-                handler.charge_point_id,
-                action.as_ref()
+                charge_point_id = handler.charge_point_id.as_str(),
+                action = ?action.as_ref(),
+                "Received CS→CP action from charge point (protocol error)"
             );
-            // Return empty response for protocol errors
             ResultPayload::PossibleEmptyResponse(
                 ocpp_rs::v16::call_result::EmptyResponses::EmptyResponse(
                     ocpp_rs::v16::call_result::EmptyResponse {},

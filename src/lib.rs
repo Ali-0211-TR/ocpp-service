@@ -2,34 +2,24 @@
 //!
 //! OCPP 1.6 Central System implementation for managing EV charging stations.
 //!
-//! ## Architecture
+//! ## Architecture (Clean / SOLID)
 //!
-//! The project follows Clean Architecture principles:
-//!
-//! - **domain**: Core business entities, types and traits
-//! - **application**: Business logic, use cases and handlers
-//! - **infrastructure**: External concerns (WebSocket server, storage, database)
-//! - **session**: Connection and session management
-//! - **api**: REST API with Swagger documentation
-//! - **auth**: JWT authentication and API key management
-//! - **notifications**: Real-time WebSocket notifications for UI
+//! - **support**: Cross-cutting utilities (errors, shutdown, time, ID generation)
+//! - **domain**: Core business entities, traits, and value objects
+//! - **application**: Use-case orchestration, commands, events, DTOs
+//! - **infrastructure**: External concerns (database, crypto)
+//! - **interfaces**: Delivery mechanisms (HTTP REST, WebSocket, gRPC placeholder)
+//! - **config**: Application configuration (TOML-based)
 
-pub mod api;
-pub mod application;
-pub mod auth;
-pub mod config;
+pub mod support;
 pub mod domain;
+pub mod application;
 pub mod infrastructure;
-pub mod notifications;
-pub mod session;
+pub mod interfaces;
+pub mod config;
 
+// Re-export commonly used types at crate root
 pub use config::{AppConfig, Config, default_config_path};
-
-// Re-export database types for easy access
 pub use infrastructure::{init_database, DatabaseConfig, DatabaseStorage};
-
-// Re-export API router
-pub use api::create_api_router;
-
-// Re-export notifications
-pub use notifications::{create_event_bus, Event, EventBus, SharedEventBus};
+pub use interfaces::http::create_api_router;
+pub use application::events::{create_event_bus, Event, EventBus, SharedEventBus};

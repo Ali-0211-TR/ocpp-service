@@ -1,26 +1,27 @@
 //! StopTransaction handler
 
-use log::{error, info};
 use ocpp_rs::v16::call::StopTransaction;
 use ocpp_rs::v16::call_result::{EmptyResponses, GenericIdTagInfo, ResultPayload};
 use ocpp_rs::v16::data_types::IdTagInfo;
 use ocpp_rs::v16::enums::ParsedGenericStatus;
+use tracing::{error, info};
 
+use crate::application::events::{Event, TransactionStoppedEvent};
 use crate::application::OcppHandler;
-use crate::notifications::{Event, TransactionStoppedEvent};
 
 pub async fn handle_stop_transaction(
     handler: &OcppHandler,
     payload: StopTransaction,
 ) -> ResultPayload {
     info!(
-        "[{}] StopTransaction - TransactionId: {}, MeterStop: {}",
-        handler.charge_point_id, payload.transaction_id, payload.meter_stop
+        charge_point_id = handler.charge_point_id.as_str(),
+        transaction_id = payload.transaction_id,
+        meter_stop = payload.meter_stop,
+        "StopTransaction"
     );
 
     let transaction_id = payload.transaction_id as i32;
 
-    // Stop the transaction
     let stop_result = handler
         .service
         .stop_transaction(
@@ -32,37 +33,33 @@ pub async fn handle_stop_transaction(
 
     if let Err(e) = &stop_result {
         error!(
-            "[{}] Failed to stop transaction {}: {}",
-            handler.charge_point_id, transaction_id, e
+            charge_point_id = handler.charge_point_id.as_str(),
+            transaction_id,
+            error = %e,
+            "Failed to stop transaction"
         );
     }
-
-    // Calculate billing after stopping
-    let mut energy_kwh = 0.0;
-    let mut total_cost = 0.0;
-    let mut currency = "UZS".to_string();
 
     if stop_result.is_ok() {
         match handler
             .billing_service
-            .calculate_transaction_billing(transaction_id, None) // Use default tariff
+            .calculate_transaction_billing(transaction_id, None)
             .await
         {
             Ok(billing) => {
-                energy_kwh = billing.energy_wh as f64 / 1000.0;
-                total_cost = billing.total_cost as f64 / 100.0;
-                currency = billing.currency.clone();
+                let energy_kwh = billing.energy_wh as f64 / 1000.0;
+                let total_cost = billing.total_cost as f64 / 100.0;
+                let currency = billing.currency.clone();
 
                 info!(
-                    "[{}] Transaction {} billing: {:.2} {} (energy: {:.3} kWh)",
-                    handler.charge_point_id,
+                    charge_point_id = handler.charge_point_id.as_str(),
                     transaction_id,
                     total_cost,
-                    currency,
-                    energy_kwh
+                    currency = currency.as_str(),
+                    energy_kwh,
+                    "Transaction billing calculated"
                 );
 
-                // Publish transaction stopped event
                 handler.event_bus.publish(Event::TransactionStopped(TransactionStoppedEvent {
                     charge_point_id: handler.charge_point_id.clone(),
                     transaction_id,
@@ -77,11 +74,12 @@ pub async fn handle_stop_transaction(
             }
             Err(e) => {
                 error!(
-                    "[{}] Failed to calculate billing for transaction {}: {}",
-                    handler.charge_point_id, transaction_id, e
+                    charge_point_id = handler.charge_point_id.as_str(),
+                    transaction_id,
+                    error = %e,
+                    "Failed to calculate billing"
                 );
 
-                // Still publish event even without billing
                 handler.event_bus.publish(Event::TransactionStopped(TransactionStoppedEvent {
                     charge_point_id: handler.charge_point_id.clone(),
                     transaction_id,

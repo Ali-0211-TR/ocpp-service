@@ -1,9 +1,7 @@
-//! Infrastructure layer - external concerns
-
 pub mod database;
-pub mod server;
-pub mod storage;
+pub mod crypto;
 
-pub use database::{init_database, DatabaseConfig, DatabaseStorage};
-pub use server::{OcppServer, ShutdownCoordinator, ShutdownSignal};
-pub use storage::{InMemoryStorage, Storage};
+// Re-export commonly used types
+pub use database::storage::DatabaseStorage;
+pub use database::{init_database, DatabaseConfig};
+pub use crate::domain::Storage;

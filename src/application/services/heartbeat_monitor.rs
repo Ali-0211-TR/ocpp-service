@@ -1,37 +1,32 @@
 //! Heartbeat Monitor Service
 //!
-//! Monitors charge point heartbeats and marks stations as offline
-//! when they stop responding.
+//! Monitors charge point heartbeats and marks stations as offline.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use log::{debug, info, warn};
 use tokio::sync::RwLock;
+use tracing::{debug, info, warn};
 
-use crate::domain::{ChargePointStatus, DomainResult};
-use crate::infrastructure::Storage;
-use crate::infrastructure::server::ShutdownSignal;
-use crate::session::SharedSessionManager;
+use crate::application::session::SharedSessionRegistry;
+use crate::domain::{ChargePointStatus, DomainResult, Storage};
+use crate::support::shutdown::ShutdownSignal;
 
 /// Configuration for heartbeat monitoring
 #[derive(Debug, Clone)]
 pub struct HeartbeatConfig {
-    /// How often to check for stale connections (in seconds)
     pub check_interval_secs: u64,
-    /// How long before a station is considered offline (in seconds)
     pub offline_threshold_secs: i64,
-    /// How long before a station is considered unavailable (in seconds)
     pub unavailable_threshold_secs: i64,
 }
 
 impl Default for HeartbeatConfig {
     fn default() -> Self {
         Self {
-            check_interval_secs: 60,        // Check every minute
-            offline_threshold_secs: 180,     // 3 minutes without heartbeat = offline
-            unavailable_threshold_secs: 600, // 10 minutes = unavailable
+            check_interval_secs: 60,
+            offline_threshold_secs: 180,
+            unavailable_threshold_secs: 600,
         }
     }
 }
@@ -47,26 +42,28 @@ pub struct HeartbeatStatus {
     pub seconds_since_heartbeat: Option<i64>,
 }
 
+/// Connection statistics
+#[derive(Debug, Clone)]
+pub struct ConnectionStats {
+    pub total: usize,
+    pub online: usize,
+    pub offline: usize,
+    pub stale: usize,
+}
+
 /// Heartbeat Monitor Service
-///
-/// Runs in the background and monitors charge point heartbeats,
-/// updating their status when they go offline.
 pub struct HeartbeatMonitor {
     storage: Arc<dyn Storage>,
-    session_manager: SharedSessionManager,
+    session_registry: SharedSessionRegistry,
     config: HeartbeatConfig,
-    /// Running state
     running: Arc<RwLock<bool>>,
 }
 
 impl HeartbeatMonitor {
-    pub fn new(
-        storage: Arc<dyn Storage>,
-        session_manager: SharedSessionManager,
-    ) -> Self {
+    pub fn new(storage: Arc<dyn Storage>, session_registry: SharedSessionRegistry) -> Self {
         Self {
             storage,
-            session_manager,
+            session_registry,
             config: HeartbeatConfig::default(),
             running: Arc::new(RwLock::new(false)),
         }
@@ -77,10 +74,9 @@ impl HeartbeatMonitor {
         self
     }
 
-    /// Start the heartbeat monitor background task
     pub fn start(&self, shutdown: ShutdownSignal) {
         let storage = self.storage.clone();
-        let session_manager = self.session_manager.clone();
+        let session_registry = self.session_registry.clone();
         let config = self.config.clone();
         let running = self.running.clone();
 
@@ -90,16 +86,20 @@ impl HeartbeatMonitor {
                 *r = true;
             }
 
-            info!("💓 Heartbeat monitor started (check interval: {}s, offline threshold: {}s)",
-                config.check_interval_secs, config.offline_threshold_secs);
+            info!(
+                check_interval = config.check_interval_secs,
+                offline_threshold = config.offline_threshold_secs,
+                "💓 Heartbeat monitor started"
+            );
 
-            let mut interval = tokio::time::interval(Duration::from_secs(config.check_interval_secs));
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(config.check_interval_secs));
 
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = check_heartbeats(&storage, &session_manager, &config).await {
-                            warn!("Heartbeat check error: {}", e);
+                        if let Err(e) = check_heartbeats(&storage, &session_registry, &config).await {
+                            warn!(error = %e, "Heartbeat check error");
                         }
                     }
                     _ = shutdown.notified().wait() => {
@@ -118,28 +118,26 @@ impl HeartbeatMonitor {
         });
     }
 
-    /// Check if the monitor is running
     pub async fn is_running(&self) -> bool {
         *self.running.read().await
     }
 
-    /// Get heartbeat status for all charge points
     pub async fn get_all_statuses(&self) -> DomainResult<Vec<HeartbeatStatus>> {
         let charge_points = self.storage.list_charge_points().await?;
         let now = Utc::now();
 
-        let statuses: Vec<HeartbeatStatus> = charge_points
+        let statuses = charge_points
             .into_iter()
             .map(|cp| {
-                let is_connected = self.session_manager.is_connected(&cp.id);
-                let seconds_since = cp.last_heartbeat.map(|hb| {
-                    now.signed_duration_since(hb).num_seconds()
-                });
+                let is_connected = self.session_registry.is_connected(&cp.id);
+                let seconds_since = cp
+                    .last_heartbeat
+                    .map(|hb| now.signed_duration_since(hb).num_seconds());
 
                 HeartbeatStatus {
                     charge_point_id: cp.id.clone(),
                     last_heartbeat: cp.last_heartbeat,
-                    last_seen: cp.last_heartbeat, // Use last_heartbeat as last_seen
+                    last_seen: cp.last_heartbeat,
                     is_connected,
                     status: cp.status,
                     seconds_since_heartbeat: seconds_since,
@@ -150,21 +148,20 @@ impl HeartbeatMonitor {
         Ok(statuses)
     }
 
-    /// Get heartbeat status for a specific charge point
     pub async fn get_status(&self, charge_point_id: &str) -> DomainResult<Option<HeartbeatStatus>> {
         let cp = self.storage.get_charge_point(charge_point_id).await?;
         let now = Utc::now();
 
         Ok(cp.map(|cp| {
-            let is_connected = self.session_manager.is_connected(&cp.id);
-            let seconds_since = cp.last_heartbeat.map(|hb| {
-                now.signed_duration_since(hb).num_seconds()
-            });
+            let is_connected = self.session_registry.is_connected(&cp.id);
+            let seconds_since = cp
+                .last_heartbeat
+                .map(|hb| now.signed_duration_since(hb).num_seconds());
 
             HeartbeatStatus {
                 charge_point_id: cp.id.clone(),
                 last_heartbeat: cp.last_heartbeat,
-                last_seen: cp.last_heartbeat, // Use last_heartbeat as last_seen
+                last_seen: cp.last_heartbeat,
                 is_connected,
                 status: cp.status,
                 seconds_since_heartbeat: seconds_since,
@@ -172,19 +169,17 @@ impl HeartbeatMonitor {
         }))
     }
 
-    /// Get list of online charge points
     pub async fn get_online_charge_points(&self) -> Vec<String> {
-        self.session_manager.connected_ids()
+        self.session_registry.connected_ids()
     }
 
-    /// Get count of online vs offline charge points
     pub async fn get_connection_stats(&self) -> DomainResult<ConnectionStats> {
         let charge_points = self.storage.list_charge_points().await?;
         let total = charge_points.len();
-        
+
         let online = charge_points
             .iter()
-            .filter(|cp| self.session_manager.is_connected(&cp.id))
+            .filter(|cp| self.session_registry.is_connected(&cp.id))
             .count();
 
         let offline = total - online;
@@ -196,7 +191,7 @@ impl HeartbeatMonitor {
                     let elapsed = Utc::now().signed_duration_since(hb).num_seconds();
                     elapsed > self.config.offline_threshold_secs
                 } else {
-                    true // No heartbeat = considered stale
+                    true
                 }
             })
             .count();
@@ -210,76 +205,60 @@ impl HeartbeatMonitor {
     }
 }
 
-/// Connection statistics
-#[derive(Debug, Clone)]
-pub struct ConnectionStats {
-    pub total: usize,
-    pub online: usize,
-    pub offline: usize,
-    pub stale: usize,
-}
-
-/// Check all charge points for heartbeat timeouts
 async fn check_heartbeats(
     storage: &Arc<dyn Storage>,
-    session_manager: &SharedSessionManager,
+    session_registry: &SharedSessionRegistry,
     config: &HeartbeatConfig,
 ) -> DomainResult<()> {
     let charge_points = storage.list_charge_points().await?;
     let now = Utc::now();
 
-    debug!("Checking heartbeats for {} charge points", charge_points.len());
+    debug!(count = charge_points.len(), "Checking heartbeats");
 
     for cp in charge_points {
-        let is_connected = session_manager.is_connected(&cp.id);
+        let is_connected = session_registry.is_connected(&cp.id);
         let current_status = cp.status.clone();
 
-        // Determine new status based on heartbeat and connection
         let new_status = if is_connected {
-            // Connected via WebSocket
             if let Some(last_hb) = cp.last_heartbeat {
                 let elapsed = now.signed_duration_since(last_hb).num_seconds();
-                
                 if elapsed > config.unavailable_threshold_secs {
-                    // Connected but no heartbeat for too long - might be stuck
                     ChargePointStatus::Unavailable
-                } else if elapsed > config.offline_threshold_secs {
-                    // Connected but heartbeat delayed
-                    ChargePointStatus::Online // Still consider online if WebSocket is active
                 } else {
                     ChargePointStatus::Online
                 }
             } else {
-                // Connected but never sent heartbeat yet
                 ChargePointStatus::Online
             }
-        } else {
-            // Not connected via WebSocket
-            if let Some(last_hb) = cp.last_heartbeat {
-                let elapsed = now.signed_duration_since(last_hb).num_seconds();
-                
-                if elapsed > config.unavailable_threshold_secs {
-                    ChargePointStatus::Unavailable
-                } else {
-                    ChargePointStatus::Offline
-                }
+        } else if let Some(last_hb) = cp.last_heartbeat {
+            let elapsed = now.signed_duration_since(last_hb).num_seconds();
+            if elapsed > config.unavailable_threshold_secs {
+                ChargePointStatus::Unavailable
             } else {
-                // Never connected
-                ChargePointStatus::Unknown
+                ChargePointStatus::Offline
             }
+        } else {
+            ChargePointStatus::Unknown
         };
 
-        // Update status if changed
         if new_status != current_status {
             info!(
-                "💓 [{}] Status changed: {:?} → {:?} (connected: {}, last_hb: {:?})",
-                cp.id, current_status, new_status, is_connected,
-                cp.last_heartbeat.map(|hb| now.signed_duration_since(hb).num_seconds())
+                charge_point_id = cp.id.as_str(),
+                ?current_status,
+                ?new_status,
+                is_connected,
+                "💓 Status changed"
             );
 
-            // Update in database
-            if let Err(e) = storage.update_charge_point_status(&cp.id, new_status.clone()).await {
-                warn!("Failed to update status for {}: {}", cp.id, e);
+            if let Err(e) = storage
+                .update_charge_point_status(&cp.id, new_status.clone())
+                .await
+            {
+                warn!(
+                    charge_point_id = cp.id.as_str(),
+                    error = %e,
+                    "Failed to update status"
+                );
             }
         }
     }
