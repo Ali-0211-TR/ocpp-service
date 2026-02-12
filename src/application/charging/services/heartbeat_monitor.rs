@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::application::SharedSessionRegistry;
-use crate::domain::{ChargePointStatus, DomainResult, Storage};
+use crate::domain::{ChargePointStatus, DomainResult, RepositoryProvider};
 use crate::shared::shutdown::ShutdownSignal;
 
 /// Configuration for heartbeat monitoring
@@ -53,16 +53,16 @@ pub struct ConnectionStats {
 
 /// Heartbeat Monitor Service
 pub struct HeartbeatMonitor {
-    storage: Arc<dyn Storage>,
+    repos: Arc<dyn RepositoryProvider>,
     session_registry: SharedSessionRegistry,
     config: HeartbeatConfig,
     running: Arc<RwLock<bool>>,
 }
 
 impl HeartbeatMonitor {
-    pub fn new(storage: Arc<dyn Storage>, session_registry: SharedSessionRegistry) -> Self {
+    pub fn new(repos: Arc<dyn RepositoryProvider>, session_registry: SharedSessionRegistry) -> Self {
         Self {
-            storage,
+            repos,
             session_registry,
             config: HeartbeatConfig::default(),
             running: Arc::new(RwLock::new(false)),
@@ -75,7 +75,7 @@ impl HeartbeatMonitor {
     }
 
     pub fn start(&self, shutdown: ShutdownSignal) {
-        let storage = self.storage.clone();
+        let repos = self.repos.clone();
         let session_registry = self.session_registry.clone();
         let config = self.config.clone();
         let running = self.running.clone();
@@ -98,7 +98,7 @@ impl HeartbeatMonitor {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = check_heartbeats(&storage, &session_registry, &config).await {
+                        if let Err(e) = check_heartbeats(&repos, &session_registry, &config).await {
                             warn!(error = %e, "Heartbeat check error");
                         }
                     }
@@ -123,7 +123,7 @@ impl HeartbeatMonitor {
     }
 
     pub async fn get_all_statuses(&self) -> DomainResult<Vec<HeartbeatStatus>> {
-        let charge_points = self.storage.list_charge_points().await?;
+        let charge_points = self.repos.charge_points().find_all().await?;
         let now = Utc::now();
 
         let statuses = charge_points
@@ -149,7 +149,7 @@ impl HeartbeatMonitor {
     }
 
     pub async fn get_status(&self, charge_point_id: &str) -> DomainResult<Option<HeartbeatStatus>> {
-        let cp = self.storage.get_charge_point(charge_point_id).await?;
+        let cp = self.repos.charge_points().find_by_id(charge_point_id).await?;
         let now = Utc::now();
 
         Ok(cp.map(|cp| {
@@ -174,7 +174,7 @@ impl HeartbeatMonitor {
     }
 
     pub async fn get_connection_stats(&self) -> DomainResult<ConnectionStats> {
-        let charge_points = self.storage.list_charge_points().await?;
+        let charge_points = self.repos.charge_points().find_all().await?;
         let total = charge_points.len();
 
         let online = charge_points
@@ -206,11 +206,11 @@ impl HeartbeatMonitor {
 }
 
 async fn check_heartbeats(
-    storage: &Arc<dyn Storage>,
+    repos: &Arc<dyn RepositoryProvider>,
     session_registry: &SharedSessionRegistry,
     config: &HeartbeatConfig,
 ) -> DomainResult<()> {
-    let charge_points = storage.list_charge_points().await?;
+    let charge_points = repos.charge_points().find_all().await?;
     let now = Utc::now();
 
     debug!(count = charge_points.len(), "Checking heartbeats");
@@ -250,8 +250,9 @@ async fn check_heartbeats(
                 "💓 Status changed"
             );
 
-            if let Err(e) = storage
-                .update_charge_point_status(&cp.id, new_status.clone())
+            if let Err(e) = repos
+                .charge_points()
+                .update_status(&cp.id, new_status.clone())
                 .await
             {
                 warn!(

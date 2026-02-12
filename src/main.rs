@@ -20,7 +20,7 @@ use texnouz_ocpp::interfaces::ws::{
 use texnouz_ocpp::shared::shutdown::ShutdownCoordinator;
 use texnouz_ocpp::{
     create_api_router, create_event_bus, default_config_path, init_database, Config,
-    DatabaseConfig, DatabaseStorage,
+    DatabaseConfig, SeaOrmRepositoryProvider,
 };
 
 #[tokio::main]
@@ -88,13 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create default admin user if not exists
     create_default_admin(&db, &app_cfg).await;
 
-    // Initialize storage (using database)
-    let storage: Arc<dyn texnouz_ocpp::domain::Storage> =
-        Arc::new(DatabaseStorage::new(db.clone()));
+    // Initialize repository provider (replaces monolithic Storage)
+    let repos: Arc<dyn texnouz_ocpp::domain::RepositoryProvider> =
+        Arc::new(SeaOrmRepositoryProvider::new(db.clone()));
 
     // Initialize services
-    let service = Arc::new(ChargePointService::new(storage.clone()));
-    let billing_service = Arc::new(BillingService::new(storage.clone()));
+    let service = Arc::new(ChargePointService::new(repos.clone()));
+    let billing_service = Arc::new(BillingService::new(repos.clone()));
 
     // Initialize event bus for real-time notifications
     let event_bus = create_event_bus();
@@ -145,14 +145,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Start Heartbeat Monitor
     let heartbeat_monitor = Arc::new(HeartbeatMonitor::new(
-        storage.clone(),
+        repos.clone(),
         session_registry.clone(),
     ));
     heartbeat_monitor.start(shutdown_signal.clone());
 
     // Create REST API router
     let api_router = create_api_router(
-        storage,
+        repos,
         session_registry,
         command_sender,
         db.clone(),

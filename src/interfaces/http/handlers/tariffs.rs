@@ -131,7 +131,7 @@ fn parse_tariff_type(s: &str) -> TariffType {
 pub async fn list_tariffs(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<TariffResponse>>>, (StatusCode, Json<ApiResponse<()>>)> {
-    match state.storage.list_tariffs().await {
+    match state.repos.tariffs().find_all().await {
         Ok(tariffs) => {
             let responses: Vec<TariffResponse> = tariffs.into_iter().map(Into::into).collect();
             Ok(Json(ApiResponse::success(responses)))
@@ -158,7 +158,7 @@ pub async fn get_tariff(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<ApiResponse<TariffResponse>>, (StatusCode, Json<ApiResponse<()>>)> {
-    match state.storage.get_tariff(id).await {
+    match state.repos.tariffs().find_by_id(id).await {
         Ok(Some(tariff)) => Ok(Json(ApiResponse::success(tariff.into()))),
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
@@ -184,7 +184,7 @@ pub async fn get_tariff(
 pub async fn get_default_tariff(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<TariffResponse>>, (StatusCode, Json<ApiResponse<()>>)> {
-    match state.storage.get_default_tariff().await {
+    match state.repos.tariffs().find_default().await {
         Ok(Some(tariff)) => Ok(Json(ApiResponse::success(tariff.into()))),
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
@@ -236,7 +236,7 @@ pub async fn create_tariff(
         updated_at: now,
     };
 
-    match state.storage.save_tariff(tariff).await {
+    match state.repos.tariffs().save(tariff).await {
         Ok(saved) => Ok((
             StatusCode::CREATED,
             Json(ApiResponse::success(saved.into())),
@@ -268,7 +268,7 @@ pub async fn update_tariff(
     Path(id): Path<i32>,
     Json(req): Json<UpdateTariffRequest>,
 ) -> Result<Json<ApiResponse<TariffResponse>>, (StatusCode, Json<ApiResponse<()>>)> {
-    let existing = match state.storage.get_tariff(id).await {
+    let existing = match state.repos.tariffs().find_by_id(id).await {
         Ok(Some(t)) => t,
         Ok(None) => {
             return Err((
@@ -306,7 +306,7 @@ pub async fn update_tariff(
         updated_at: Utc::now(),
     };
 
-    match state.storage.update_tariff(updated.clone()).await {
+    match state.repos.tariffs().update(updated.clone()).await {
         Ok(()) => Ok(Json(ApiResponse::success(updated.into()))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -333,7 +333,7 @@ pub async fn delete_tariff(
     State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<()>>)> {
-    match state.storage.delete_tariff(id).await {
+    match state.repos.tariffs().delete(id).await {
         Ok(()) => Ok(Json(ApiResponse::success("Tariff deleted".to_string()))),
         Err(e) => Err((
             StatusCode::NOT_FOUND,
@@ -361,7 +361,7 @@ pub async fn preview_cost(
     Json(req): Json<CostPreviewRequest>,
 ) -> Result<Json<ApiResponse<CostBreakdownResponse>>, (StatusCode, Json<ApiResponse<()>>)> {
     let tariff = if let Some(id) = req.tariff_id {
-        match state.storage.get_tariff(id).await {
+        match state.repos.tariffs().find_by_id(id).await {
             Ok(Some(t)) => t,
             Ok(None) => {
                 return Err((
@@ -377,7 +377,7 @@ pub async fn preview_cost(
             }
         }
     } else {
-        match state.storage.get_default_tariff().await {
+        match state.repos.tariffs().find_default().await {
             Ok(Some(t)) => t,
             Ok(None) => {
                 return Err((

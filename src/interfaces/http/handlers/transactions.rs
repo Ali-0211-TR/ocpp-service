@@ -12,12 +12,12 @@ use tracing::info;
 use crate::interfaces::http::{
     ApiResponse, PaginatedResponse, PaginationParams, TransactionDto, TransactionFilter,
 };
-use crate::domain::Storage;
+use crate::domain::RepositoryProvider;
 
 /// Transaction handler state
 #[derive(Clone)]
 pub struct TransactionAppState {
-    pub storage: Arc<dyn Storage>,
+    pub repos: Arc<dyn RepositoryProvider>,
 }
 
 #[utoipa::path(
@@ -41,8 +41,9 @@ pub async fn list_transactions_for_charge_point(
     Query(pagination): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<TransactionDto>>, (StatusCode, Json<ApiResponse<()>>)> {
     match state
-        .storage
-        .list_transactions_for_charge_point(&charge_point_id)
+        .repos
+        .transactions()
+        .find_by_charge_point(&charge_point_id)
         .await
     {
         Ok(transactions) => {
@@ -107,7 +108,7 @@ pub async fn list_all_transactions(
     State(state): State<TransactionAppState>,
     Query(pagination): Query<PaginationParams>,
 ) -> Result<Json<PaginatedResponse<TransactionDto>>, (StatusCode, Json<ApiResponse<()>>)> {
-    match state.storage.list_all_transactions().await {
+    match state.repos.transactions().find_all().await {
         Ok(transactions) => {
             let total = transactions.len() as u64;
             let page = pagination.page;
@@ -143,7 +144,7 @@ pub async fn get_transaction(
     State(state): State<TransactionAppState>,
     Path(id): Path<i32>,
 ) -> Result<Json<ApiResponse<TransactionDto>>, (StatusCode, Json<ApiResponse<TransactionDto>>)> {
-    match state.storage.get_transaction(id).await {
+    match state.repos.transactions().find_by_id(id).await {
         Ok(Some(tx)) => Ok(Json(ApiResponse::success(TransactionDto::from_domain(tx)))),
         Ok(None) => Err((
             StatusCode::NOT_FOUND,
@@ -174,8 +175,9 @@ pub async fn get_active_transactions(
     (StatusCode, Json<ApiResponse<Vec<TransactionDto>>>),
 > {
     match state
-        .storage
-        .list_transactions_for_charge_point(&charge_point_id)
+        .repos
+        .transactions()
+        .find_by_charge_point(&charge_point_id)
         .await
     {
         Ok(transactions) => {
@@ -218,8 +220,9 @@ pub async fn get_transaction_stats(
 ) -> Result<Json<ApiResponse<TransactionStats>>, (StatusCode, Json<ApiResponse<TransactionStats>>)>
 {
     match state
-        .storage
-        .list_transactions_for_charge_point(&charge_point_id)
+        .repos
+        .transactions()
+        .find_by_charge_point(&charge_point_id)
         .await
     {
         Ok(transactions) => {
@@ -273,7 +276,7 @@ pub async fn force_stop_transaction(
     State(state): State<TransactionAppState>,
     Path(transaction_id): Path<i32>,
 ) -> Result<Json<ApiResponse<TransactionDto>>, (StatusCode, Json<ApiResponse<TransactionDto>>)> {
-    let transaction = match state.storage.get_transaction(transaction_id).await {
+    let transaction = match state.repos.transactions().find_by_id(transaction_id).await {
         Ok(Some(tx)) => tx,
         Ok(None) => {
             return Err((
@@ -305,7 +308,7 @@ pub async fn force_stop_transaction(
     let mut tx = transaction;
     tx.stop(tx.meter_start, Some("ForceStop".to_string()));
 
-    if let Err(e) = state.storage.update_transaction(tx.clone()).await {
+    if let Err(e) = state.repos.transactions().update(tx.clone()).await {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),

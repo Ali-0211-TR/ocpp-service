@@ -21,5 +21,5 @@ pub mod shared;
 // Re-export commonly used types at crate root
 pub use application::events::{create_event_bus, Event, EventBus, SharedEventBus};
 pub use config::{default_config_path, AppConfig, Config};
-pub use infrastructure::{init_database, DatabaseConfig, DatabaseStorage};
+pub use infrastructure::{init_database, DatabaseConfig, SeaOrmRepositoryProvider};
 pub use interfaces::http::create_api_router;

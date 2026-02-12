@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use tracing::info;
 
 use crate::domain::{
-    ChargePoint, ChargingLimitType, ConnectorStatus, DomainResult, Storage, Transaction,
+    ChargePoint, ChargingLimitType, ConnectorStatus, DomainResult, RepositoryProvider, Transaction,
 };
 use crate::shared::errors::DomainError;
 
@@ -19,14 +19,14 @@ pub struct PendingChargingLimit {
 
 /// Service for charge point business operations
 pub struct ChargePointService {
-    storage: Arc<dyn Storage>,
+    repos: Arc<dyn RepositoryProvider>,
     pending_limits: DashMap<(String, u32), PendingChargingLimit>,
 }
 
 impl ChargePointService {
-    pub fn new(storage: Arc<dyn Storage>) -> Self {
+    pub fn new(repos: Arc<dyn RepositoryProvider>) -> Self {
         Self {
-            storage,
+            repos,
             pending_limits: DashMap::new(),
         }
     }
@@ -65,7 +65,7 @@ impl ChargePointService {
         serial_number: Option<&str>,
         firmware_version: Option<&str>,
     ) -> DomainResult<ChargePoint> {
-        let existing = self.storage.get_charge_point(charge_point_id).await?;
+        let existing = self.repos.charge_points().find_by_id(charge_point_id).await?;
 
         let mut cp = existing.unwrap_or_else(|| ChargePoint::new(charge_point_id));
 
@@ -77,14 +77,15 @@ impl ChargePointService {
         cp.update_heartbeat();
 
         if self
-            .storage
-            .get_charge_point(charge_point_id)
+            .repos
+            .charge_points()
+            .find_by_id(charge_point_id)
             .await?
             .is_some()
         {
-            self.storage.update_charge_point(cp.clone()).await?;
+            self.repos.charge_points().update(cp.clone()).await?;
         } else {
-            self.storage.save_charge_point(cp.clone()).await?;
+            self.repos.charge_points().save(cp.clone()).await?;
         }
 
         info!(charge_point_id, vendor, model, "Charge point registered");
@@ -93,9 +94,9 @@ impl ChargePointService {
     }
 
     pub async fn heartbeat(&self, charge_point_id: &str) -> DomainResult<()> {
-        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+        if let Some(mut cp) = self.repos.charge_points().find_by_id(charge_point_id).await? {
             cp.update_heartbeat();
-            self.storage.update_charge_point(cp).await?;
+            self.repos.charge_points().update(cp).await?;
         }
         Ok(())
     }
@@ -106,9 +107,9 @@ impl ChargePointService {
         connector_id: u32,
         status: ConnectorStatus,
     ) -> DomainResult<()> {
-        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+        if let Some(mut cp) = self.repos.charge_points().find_by_id(charge_point_id).await? {
             cp.update_connector_status(connector_id, status);
-            self.storage.update_charge_point(cp).await?;
+            self.repos.charge_points().update(cp).await?;
         }
         Ok(())
     }
@@ -118,9 +119,9 @@ impl ChargePointService {
         charge_point_id: &str,
         num_connectors: u32,
     ) -> DomainResult<()> {
-        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+        if let Some(mut cp) = self.repos.charge_points().find_by_id(charge_point_id).await? {
             cp.ensure_connectors(num_connectors);
-            self.storage.update_charge_point(cp).await?;
+            self.repos.charge_points().update(cp).await?;
             info!(
                 charge_point_id,
                 num_connectors = num_connectors + 1,
@@ -135,10 +136,10 @@ impl ChargePointService {
         charge_point_id: &str,
         connector_id: u32,
     ) -> DomainResult<bool> {
-        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+        if let Some(mut cp) = self.repos.charge_points().find_by_id(charge_point_id).await? {
             let added = cp.add_connector(connector_id);
             if added {
-                self.storage.update_charge_point(cp).await?;
+                self.repos.charge_points().update(cp).await?;
                 info!(charge_point_id, connector_id, "Connector added");
             }
             Ok(added)
@@ -156,10 +157,10 @@ impl ChargePointService {
         charge_point_id: &str,
         connector_id: u32,
     ) -> DomainResult<bool> {
-        if let Some(mut cp) = self.storage.get_charge_point(charge_point_id).await? {
+        if let Some(mut cp) = self.repos.charge_points().find_by_id(charge_point_id).await? {
             let removed = cp.remove_connector(connector_id);
             if removed {
-                self.storage.update_charge_point(cp).await?;
+                self.repos.charge_points().update(cp).await?;
                 info!(charge_point_id, connector_id, "Connector removed");
             }
             Ok(removed)
@@ -173,11 +174,11 @@ impl ChargePointService {
     }
 
     pub async fn authorize(&self, id_tag: &str) -> DomainResult<bool> {
-        self.storage.is_id_tag_valid(id_tag).await
+        self.repos.id_tags().is_valid(id_tag).await
     }
 
     pub async fn get_auth_status(&self, id_tag: &str) -> DomainResult<Option<String>> {
-        self.storage.get_id_tag_auth_status(id_tag).await
+        self.repos.id_tags().get_auth_status(id_tag).await
     }
 
     pub async fn start_transaction(
@@ -187,7 +188,7 @@ impl ChargePointService {
         id_tag: &str,
         meter_start: i32,
     ) -> DomainResult<Transaction> {
-        let transaction_id = self.storage.next_transaction_id().await;
+        let transaction_id = self.repos.transactions().next_id().await;
 
         let mut transaction = Transaction::new(
             transaction_id,
@@ -208,7 +209,7 @@ impl ChargePointService {
             transaction.limit_value = Some(limit.limit_value);
         }
 
-        self.storage.save_transaction(transaction.clone()).await?;
+        self.repos.transactions().save(transaction.clone()).await?;
 
         info!(
             transaction_id,
@@ -225,8 +226,9 @@ impl ChargePointService {
         reason: Option<String>,
     ) -> DomainResult<Transaction> {
         let mut transaction =
-            self.storage
-                .get_transaction(transaction_id)
+            self.repos
+                .transactions()
+                .find_by_id(transaction_id)
                 .await?
                 .ok_or(DomainError::NotFound {
                     entity: "Transaction",
@@ -235,7 +237,7 @@ impl ChargePointService {
                 })?;
 
         transaction.stop(meter_stop, reason);
-        self.storage.update_transaction(transaction.clone()).await?;
+        self.repos.transactions().update(transaction.clone()).await?;
 
         if let Some(energy) = transaction.energy_consumed() {
             info!(transaction_id, energy_wh = energy, "Transaction stopped");
@@ -251,11 +253,12 @@ impl ChargePointService {
         power_w: Option<f64>,
         soc: Option<i32>,
     ) -> DomainResult<Option<Transaction>> {
-        self.storage
-            .update_transaction_meter_data(transaction_id, meter_value, power_w, soc)
+        self.repos
+            .transactions()
+            .update_meter_data(transaction_id, meter_value, power_w, soc)
             .await?;
 
-        self.storage.get_transaction(transaction_id).await
+        self.repos.transactions().find_by_id(transaction_id).await
     }
 
     pub async fn get_active_transaction_for_connector(
@@ -263,16 +266,17 @@ impl ChargePointService {
         charge_point_id: &str,
         connector_id: u32,
     ) -> DomainResult<Option<Transaction>> {
-        self.storage
-            .get_active_transaction_for_connector(charge_point_id, connector_id)
+        self.repos
+            .transactions()
+            .find_active_for_connector(charge_point_id, connector_id)
             .await
     }
 
     pub async fn get_charge_point(&self, id: &str) -> DomainResult<Option<ChargePoint>> {
-        self.storage.get_charge_point(id).await
+        self.repos.charge_points().find_by_id(id).await
     }
 
     pub async fn list_charge_points(&self) -> DomainResult<Vec<ChargePoint>> {
-        self.storage.list_charge_points().await
+        self.repos.charge_points().find_all().await
     }
 }

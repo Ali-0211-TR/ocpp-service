@@ -2,9 +2,7 @@ pub mod entities;
 pub mod migrator;
 pub mod repositories;
 
-pub mod storage;
-
-pub use storage::DatabaseStorage;
+pub use repositories::SeaOrmRepositoryProvider;
 
 use sea_orm::{Database, DatabaseConnection};
 use tracing::info;

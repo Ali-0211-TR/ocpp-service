@@ -20,7 +20,7 @@ use crate::application::events::SharedEventBus;
 use crate::application::CommandSender;
 use crate::application::SharedSessionRegistry;
 use crate::application::{ChargePointService, HeartbeatMonitor};
-use crate::domain::Storage;
+use crate::domain::RepositoryProvider;
 use crate::infrastructure::crypto::jwt::JwtConfig;
 use crate::interfaces::http::middleware::{auth_middleware, AuthState};
 use crate::interfaces::ws::{create_notification_state, ws_notifications_handler};
@@ -33,7 +33,7 @@ use super::handlers::{
 /// Axum extracts the specific handler state via `FromRef`.
 #[derive(Clone)]
 pub struct ChargePointUnifiedState {
-    pub storage: Arc<dyn Storage>,
+    pub repos: Arc<dyn RepositoryProvider>,
     pub session_registry: SharedSessionRegistry,
     pub command_sender: Arc<CommandSender>,
     pub event_bus: SharedEventBus,
@@ -46,7 +46,7 @@ pub struct ChargePointUnifiedState {
 impl FromRef<ChargePointUnifiedState> for charge_points::AppState {
     fn from_ref(s: &ChargePointUnifiedState) -> Self {
         charge_points::AppState {
-            storage: Arc::clone(&s.storage),
+            repos: Arc::clone(&s.repos),
             session_registry: s.session_registry.clone(),
         }
     }
@@ -55,7 +55,7 @@ impl FromRef<ChargePointUnifiedState> for charge_points::AppState {
 impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
     fn from_ref(s: &ChargePointUnifiedState) -> Self {
         commands::CommandAppState {
-            storage: Arc::clone(&s.storage),
+            repos: Arc::clone(&s.repos),
             session_registry: s.session_registry.clone(),
             command_sender: Arc::clone(&s.command_sender),
             event_bus: s.event_bus.clone(),
@@ -67,7 +67,7 @@ impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
 impl FromRef<ChargePointUnifiedState> for transactions::TransactionAppState {
     fn from_ref(s: &ChargePointUnifiedState) -> Self {
         transactions::TransactionAppState {
-            storage: Arc::clone(&s.storage),
+            repos: Arc::clone(&s.repos),
         }
     }
 }
@@ -248,7 +248,7 @@ pub struct ApiDoc;
 
 /// Create the API router with all routes
 pub fn create_api_router(
-    storage: Arc<dyn Storage>,
+    repos: Arc<dyn RepositoryProvider>,
     session_registry: SharedSessionRegistry,
     command_sender: Arc<CommandSender>,
     db: DatabaseConnection,
@@ -259,13 +259,12 @@ pub fn create_api_router(
 ) -> Router {
     let middleware_state = AuthState {
         jwt_config: jwt_config.clone(),
-        storage: storage.clone(),
         db: db.clone(),
     };
 
     // ── Unified state for ALL charge-point related routes ───────────
     let cp_unified = ChargePointUnifiedState {
-        storage: storage.clone(),
+        repos: repos.clone(),
         session_registry: session_registry.clone(),
         command_sender,
         event_bus: event_bus.clone(),
@@ -417,7 +416,7 @@ pub fn create_api_router(
 
     // Tariff routes (protected)
     let tariff_state = charge_points::AppState {
-        storage: storage.clone(),
+        repos: repos.clone(),
         session_registry: session_registry.clone(),
     };
     let tariff_routes = Router::new()
@@ -449,7 +448,7 @@ pub fn create_api_router(
             auth_middleware,
         ))
         .with_state(transactions::TransactionAppState {
-            storage: storage.clone(),
+            repos: repos.clone(),
         });
 
     // Monitoring routes (protected)

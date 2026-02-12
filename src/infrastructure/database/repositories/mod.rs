@@ -1,8 +1,12 @@
 //! Database repository implementations
 //!
-//! The main implementation is in `storage.rs` (DatabaseStorage).
-//! This module is reserved for future individual repository implementations
-//! if the monolithic Storage trait is split into per-entity traits.
-//!
+//! Per-aggregate SeaORM repositories + unified RepositoryProvider.
 
+pub mod charge_point_repository;
+pub mod id_tag_repository;
+pub mod repository_provider;
+pub mod tariff_repository;
+pub mod transaction_repository;
 pub mod user_repository;
+
+pub use repository_provider::SeaOrmRepositoryProvider;

@@ -5,18 +5,18 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::domain::{
-    BillingStatus, CostBreakdown, DomainResult, Storage, Tariff, TransactionBilling,
+    BillingStatus, CostBreakdown, DomainResult, RepositoryProvider, Tariff, TransactionBilling,
 };
 use crate::shared::errors::DomainError;
 
 /// Service for billing operations
 pub struct BillingService {
-    storage: Arc<dyn Storage>,
+    repos: Arc<dyn RepositoryProvider>,
 }
 
 impl BillingService {
-    pub fn new(storage: Arc<dyn Storage>) -> Self {
-        Self { storage }
+    pub fn new(repos: Arc<dyn RepositoryProvider>) -> Self {
+        Self { repos }
     }
 
     pub async fn calculate_transaction_billing(
@@ -25,8 +25,9 @@ impl BillingService {
         tariff_id: Option<i32>,
     ) -> DomainResult<TransactionBilling> {
         let transaction =
-            self.storage
-                .get_transaction(transaction_id)
+            self.repos
+                .transactions()
+                .find_by_id(transaction_id)
                 .await?
                 .ok_or(DomainError::NotFound {
                     entity: "Transaction",
@@ -41,8 +42,9 @@ impl BillingService {
         }
 
         let tariff = if let Some(id) = tariff_id {
-            self.storage
-                .get_tariff(id)
+            self.repos
+                .tariffs()
+                .find_by_id(id)
                 .await?
                 .ok_or_else(|| DomainError::NotFound {
                     entity: "Tariff",
@@ -50,8 +52,9 @@ impl BillingService {
                     value: id.to_string(),
                 })?
         } else {
-            self.storage
-                .get_default_tariff()
+            self.repos
+                .tariffs()
+                .find_default()
                 .await?
                 .ok_or_else(|| DomainError::Validation("No default tariff found".to_string()))?
         };
@@ -77,8 +80,9 @@ impl BillingService {
             status: BillingStatus::Calculated,
         };
 
-        self.storage
-            .update_transaction_billing(billing.clone())
+        self.repos
+            .billing()
+            .update_billing(billing.clone())
             .await?;
 
         info!(
@@ -97,7 +101,7 @@ impl BillingService {
         &self,
         transaction_id: i32,
     ) -> DomainResult<Option<TransactionBilling>> {
-        self.storage.get_transaction_billing(transaction_id).await
+        self.repos.billing().get_billing(transaction_id).await
     }
 
     pub async fn update_billing_status(
@@ -106,8 +110,9 @@ impl BillingService {
         status: BillingStatus,
     ) -> DomainResult<()> {
         let mut billing = self
-            .storage
-            .get_transaction_billing(transaction_id)
+            .repos
+            .billing()
+            .get_billing(transaction_id)
             .await?
             .ok_or_else(|| DomainError::NotFound {
                 entity: "Billing",
@@ -116,7 +121,7 @@ impl BillingService {
             })?;
 
         billing.status = status.clone();
-        self.storage.update_transaction_billing(billing).await?;
+        self.repos.billing().update_billing(billing).await?;
 
         info!(transaction_id, ?status, "Billing status updated");
 
@@ -124,27 +129,27 @@ impl BillingService {
     }
 
     pub async fn get_tariff(&self, id: i32) -> DomainResult<Option<Tariff>> {
-        self.storage.get_tariff(id).await
+        self.repos.tariffs().find_by_id(id).await
     }
 
     pub async fn get_default_tariff(&self) -> DomainResult<Option<Tariff>> {
-        self.storage.get_default_tariff().await
+        self.repos.tariffs().find_default().await
     }
 
     pub async fn list_tariffs(&self) -> DomainResult<Vec<Tariff>> {
-        self.storage.list_tariffs().await
+        self.repos.tariffs().find_all().await
     }
 
     pub async fn create_tariff(&self, tariff: Tariff) -> DomainResult<Tariff> {
-        self.storage.save_tariff(tariff).await
+        self.repos.tariffs().save(tariff).await
     }
 
     pub async fn update_tariff(&self, tariff: Tariff) -> DomainResult<()> {
-        self.storage.update_tariff(tariff).await
+        self.repos.tariffs().update(tariff).await
     }
 
     pub async fn delete_tariff(&self, id: i32) -> DomainResult<()> {
-        self.storage.delete_tariff(id).await
+        self.repos.tariffs().delete(id).await
     }
 
     pub fn calculate_cost_preview(

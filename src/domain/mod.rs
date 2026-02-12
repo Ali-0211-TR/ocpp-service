@@ -25,22 +25,27 @@ pub use user::{
 };
 
 // ChargePoint aggregate
-pub use charge_point::{ChargePoint, ChargePointStatus, Connector, ConnectorStatus};
+pub use charge_point::{
+    ChargePoint, ChargePointRepository, ChargePointStatus, Connector, ConnectorStatus,
+};
 
 // Transaction aggregate
-pub use transaction::{ChargingLimitType, Transaction, TransactionStatus};
+pub use transaction::{ChargingLimitType, Transaction, TransactionRepository, TransactionStatus};
 
 // Tariff aggregate
-pub use tariff::{BillingStatus, CostBreakdown, Tariff, TariffType, TransactionBilling};
+pub use tariff::{
+    BillingRepository, BillingStatus, CostBreakdown, Tariff, TariffRepository, TariffType,
+    TransactionBilling,
+};
 
 // IdTag aggregate
-pub use id_tag::{IdTag, IdTagStatus};
+pub use id_tag::{IdTag, IdTagRepository, IdTagStatus};
 
 // OCPP shared types
 pub use ocpp::{ApiKey, OcppVersion};
 
 // Storage & results
-pub use repositories::{DomainResult, Storage};
+pub use repositories::{DomainResult, RepositoryProvider};
 
 // Error
 pub use crate::shared::errors::DomainError;

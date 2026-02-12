@@ -12,12 +12,12 @@ use crate::interfaces::http::{
     ApiResponse, ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest,
 };
 use crate::application::SharedSessionRegistry;
-use crate::domain::Storage;
+use crate::domain::RepositoryProvider;
 
 /// Charge-point handler state
 #[derive(Clone)]
 pub struct AppState {
-    pub storage: Arc<dyn Storage>,
+    pub repos: Arc<dyn RepositoryProvider>,
     pub session_registry: SharedSessionRegistry,
 }
 
@@ -36,7 +36,7 @@ pub async fn list_charge_points(
     Json<ApiResponse<Vec<ChargePointDto>>>,
     (StatusCode, Json<ApiResponse<Vec<ChargePointDto>>>),
 > {
-    match state.storage.list_charge_points().await {
+    match state.repos.charge_points().find_all().await {
         Ok(charge_points) => {
             let dtos: Vec<ChargePointDto> = charge_points
                 .into_iter()
@@ -69,7 +69,7 @@ pub async fn get_charge_point(
     State(state): State<AppState>,
     Path(charge_point_id): Path<String>,
 ) -> Result<Json<ApiResponse<ChargePointDto>>, (StatusCode, Json<ApiResponse<ChargePointDto>>)> {
-    match state.storage.get_charge_point(&charge_point_id).await {
+    match state.repos.charge_points().find_by_id(&charge_point_id).await {
         Ok(Some(cp)) => {
             let is_online = state.session_registry.is_connected(&cp.id);
             Ok(Json(ApiResponse::success(ChargePointDto::from_domain(
@@ -105,7 +105,7 @@ pub async fn delete_charge_point(
     State(state): State<AppState>,
     Path(charge_point_id): Path<String>,
 ) -> Result<Json<ApiResponse<()>>, (StatusCode, Json<ApiResponse<()>>)> {
-    match state.storage.delete_charge_point(&charge_point_id).await {
+    match state.repos.charge_points().delete(&charge_point_id).await {
         Ok(()) => Ok(Json(ApiResponse::success(()))),
         Err(e) => Err((
             StatusCode::NOT_FOUND,
@@ -127,7 +127,7 @@ pub async fn get_charge_point_stats(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<ChargePointStats>>, (StatusCode, Json<ApiResponse<ChargePointStats>>)>
 {
-    match state.storage.list_charge_points().await {
+    match state.repos.charge_points().find_all().await {
         Ok(charge_points) => {
             let total = charge_points.len() as u32;
             let mut online = 0u32;
@@ -195,7 +195,7 @@ pub async fn list_connectors(
     Path(charge_point_id): Path<String>,
 ) -> Result<Json<ApiResponse<Vec<ConnectorDto>>>, (StatusCode, Json<ApiResponse<Vec<ConnectorDto>>>)>
 {
-    match state.storage.get_charge_point(&charge_point_id).await {
+    match state.repos.charge_points().find_by_id(&charge_point_id).await {
         Ok(Some(cp)) => {
             let connectors: Vec<ConnectorDto> = cp
                 .connectors
@@ -236,7 +236,7 @@ pub async fn get_connector(
     State(state): State<AppState>,
     Path((charge_point_id, connector_id)): Path<(String, u32)>,
 ) -> Result<Json<ApiResponse<ConnectorDto>>, (StatusCode, Json<ApiResponse<ConnectorDto>>)> {
-    match state.storage.get_charge_point(&charge_point_id).await {
+    match state.repos.charge_points().find_by_id(&charge_point_id).await {
         Ok(Some(cp)) => match cp.connectors.into_iter().find(|c| c.id == connector_id) {
             Some(connector) => Ok(Json(ApiResponse::success(ConnectorDto::from_domain(
                 connector,
@@ -291,7 +291,7 @@ pub async fn create_connector(
         ));
     }
 
-    let mut cp = match state.storage.get_charge_point(&charge_point_id).await {
+    let mut cp = match state.repos.charge_points().find_by_id(&charge_point_id).await {
         Ok(Some(cp)) => cp,
         Ok(None) => {
             return Err((
@@ -320,7 +320,7 @@ pub async fn create_connector(
         ));
     }
 
-    if let Err(e) = state.storage.update_charge_point(cp.clone()).await {
+    if let Err(e) = state.repos.charge_points().update(cp.clone()).await {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),
@@ -357,7 +357,7 @@ pub async fn delete_connector(
     State(state): State<AppState>,
     Path((charge_point_id, connector_id)): Path<(String, u32)>,
 ) -> Result<Json<ApiResponse<()>>, (StatusCode, Json<ApiResponse<()>>)> {
-    let mut cp = match state.storage.get_charge_point(&charge_point_id).await {
+    let mut cp = match state.repos.charge_points().find_by_id(&charge_point_id).await {
         Ok(Some(cp)) => cp,
         Ok(None) => {
             return Err((
@@ -401,7 +401,7 @@ pub async fn delete_connector(
 
     cp.remove_connector(connector_id);
 
-    if let Err(e) = state.storage.update_charge_point(cp).await {
+    if let Err(e) = state.repos.charge_points().update(cp).await {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),

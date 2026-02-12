@@ -1,7 +1,5 @@
 //! Authentication middleware for Axum
 
-use std::sync::Arc;
-
 use axum::{
     body::Body,
     extract::State,
@@ -14,7 +12,6 @@ use sea_orm::prelude::Expr;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
 
-use crate::domain::Storage;
 use crate::infrastructure::crypto::api_key::hash_api_key;
 use crate::infrastructure::crypto::jwt::{verify_token, JwtConfig, TokenClaims};
 use crate::infrastructure::database::entities::api_key;
@@ -43,7 +40,6 @@ pub enum AuthError {
 #[derive(Clone)]
 pub struct AuthState {
     pub jwt_config: JwtConfig,
-    pub storage: Arc<dyn Storage>,
     pub db: DatabaseConnection,
 }
 

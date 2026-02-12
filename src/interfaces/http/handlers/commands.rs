@@ -19,12 +19,12 @@ use crate::application::events::{Event, SharedEventBus, TransactionStoppedEvent}
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
 use crate::application::{charging::commands, CommandSender};
-use crate::domain::{ChargingLimitType, Storage};
+use crate::domain::{ChargingLimitType, RepositoryProvider};
 
 /// Command handler state
 #[derive(Clone)]
 pub struct CommandAppState {
-    pub storage: Arc<dyn Storage>,
+    pub repos: Arc<dyn RepositoryProvider>,
     pub session_registry: SharedSessionRegistry,
     pub command_sender: Arc<CommandSender>,
     pub event_bus: SharedEventBus,
@@ -144,12 +144,12 @@ pub async fn remote_stop(
 
             if accepted {
                 let transaction_id = request.transaction_id;
-                match state.storage.get_transaction(transaction_id).await {
+                match state.repos.transactions().find_by_id(transaction_id).await {
                     Ok(Some(mut tx)) if tx.is_active() => {
                         let meter_stop = tx.meter_stop.unwrap_or(tx.meter_start);
                         tx.stop(meter_stop, Some("RemoteStop".to_string()));
 
-                        if let Err(e) = state.storage.update_transaction(tx.clone()).await {
+                        if let Err(e) = state.repos.transactions().update(tx.clone()).await {
                             error!(
                                 "[{}] Failed to update transaction {} after RemoteStop: {}",
                                 charge_point_id, transaction_id, e
