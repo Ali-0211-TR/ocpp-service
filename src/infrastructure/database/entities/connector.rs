@@ -7,29 +7,29 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    
+
     pub charge_point_id: String,
-    
+
     /// Connector number on the charge point (1, 2, etc.)
     pub connector_id: i32,
-    
-    /// OCPP ChargePointStatus: Available, Preparing, Charging, SuspendedEVSE, 
+
+    /// OCPP ChargePointStatus: Available, Preparing, Charging, SuspendedEVSE,
     /// SuspendedEV, Finishing, Reserved, Unavailable, Faulted
     pub status: String,
-    
+
     /// OCPP ChargePointErrorCode
     #[sea_orm(nullable)]
     pub error_code: Option<String>,
-    
+
     #[sea_orm(nullable)]
     pub error_info: Option<String>,
-    
+
     #[sea_orm(nullable)]
     pub vendor_id: Option<String>,
-    
+
     #[sea_orm(nullable)]
     pub vendor_error_code: Option<String>,
-    
+
     pub updated_at: DateTimeUtc,
 }
 

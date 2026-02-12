@@ -88,10 +88,7 @@ async fn handle_notification_socket(
         }
     });
 
-    if let Err(e) = sender
-        .send(Message::Text(welcome.to_string().into()))
-        .await
-    {
+    if let Err(e) = sender.send(Message::Text(welcome.to_string().into())).await {
         error!("Failed to send welcome message: {}", e);
         return;
     }

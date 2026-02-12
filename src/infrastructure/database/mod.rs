@@ -6,8 +6,8 @@ pub mod storage;
 
 pub use storage::DatabaseStorage;
 
-use tracing::info;
 use sea_orm::{Database, DatabaseConnection};
+use tracing::info;
 
 /// Database configuration
 #[derive(Debug, Clone)]

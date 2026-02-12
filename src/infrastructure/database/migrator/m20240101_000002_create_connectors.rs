@@ -27,11 +27,7 @@ impl MigrationTrait for Migration {
                             .string()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(Connectors::ConnectorId)
-                            .integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Connectors::ConnectorId).integer().not_null())
                     .col(
                         ColumnDef::new(Connectors::Status)
                             .string()

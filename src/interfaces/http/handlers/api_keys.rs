@@ -6,15 +6,15 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use sea_orm::prelude::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::application::dto::ApiResponse;
+use crate::interfaces::http::ApiResponse;
 use crate::infrastructure::crypto::api_key::{generate_api_key, hash_api_key};
-use crate::interfaces::http::middleware::AuthenticatedUser;
 use crate::infrastructure::database::entities::api_key;
+use crate::interfaces::http::middleware::AuthenticatedUser;
 
 /// API key handler state
 #[derive(Clone)]
@@ -127,8 +127,10 @@ pub async fn create_api_key(
 pub async fn list_api_keys(
     State(state): State<ApiKeyHandlerState>,
     Extension(user): Extension<AuthenticatedUser>,
-) -> Result<Json<ApiResponse<Vec<ApiKeyResponse>>>, (StatusCode, Json<ApiResponse<Vec<ApiKeyResponse>>>)>
-{
+) -> Result<
+    Json<ApiResponse<Vec<ApiKeyResponse>>>,
+    (StatusCode, Json<ApiResponse<Vec<ApiKeyResponse>>>),
+> {
     let keys = api_key::Entity::find()
         .filter(api_key::Column::UserId.eq(&user.user_id))
         .all(&state.db)

@@ -9,7 +9,7 @@
 
 use async_trait::async_trait;
 
-use crate::application::commands::CommandError;
+use crate::application::CommandError;
 
 // ── Generic status (version-agnostic) ──────────────────────────
 
@@ -82,11 +82,8 @@ pub trait OcppOutboundPort: Send + Sync {
     ) -> Result<GenericStatus, CommandError>;
 
     /// Send a Reset command.
-    async fn reset(
-        &self,
-        charge_point_id: &str,
-        soft: bool,
-    ) -> Result<GenericStatus, CommandError>;
+    async fn reset(&self, charge_point_id: &str, soft: bool)
+        -> Result<GenericStatus, CommandError>;
 
     /// Send an UnlockConnector command.
     async fn unlock_connector(

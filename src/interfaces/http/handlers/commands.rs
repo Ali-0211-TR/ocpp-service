@@ -10,15 +10,15 @@ use axum::{
 use chrono::Utc;
 use tracing::{error, info, warn};
 
-use crate::application::commands::{self, CommandSender};
-use crate::application::dto::{
+use crate::interfaces::http::{
     ApiResponse, ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse,
     DataTransferRequest, DataTransferResponse, LocalListVersionResponse, RemoteStartRequest,
     RemoteStopRequest, ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
 };
 use crate::application::events::{Event, SharedEventBus, TransactionStoppedEvent};
-use crate::application::services::ChargePointService;
-use crate::application::session::SharedSessionRegistry;
+use crate::application::ChargePointService;
+use crate::application::SharedSessionRegistry;
+use crate::application::{charging::commands, CommandSender};
 use crate::domain::{ChargingLimitType, Storage};
 
 /// Command handler state
@@ -291,8 +291,12 @@ pub async fn unlock(
         ));
     }
 
-    match commands::unlock_connector(&state.command_sender, &charge_point_id, request.connector_id)
-        .await
+    match commands::unlock_connector(
+        &state.command_sender,
+        &charge_point_id,
+        request.connector_id,
+    )
+    .await
     {
         Ok(status_str) => {
             let unlocked = status_str.contains("Unlocked");
@@ -564,15 +568,10 @@ pub async fn change_config(
     )
     .await
     {
-        Ok(status_str) => {
-            Ok(Json(ApiResponse::success(CommandResponse {
-                status: status_str,
-                message: Some(format!(
-                    "Configuration '{}' update processed",
-                    request.key
-                )),
-            })))
-        }
+        Ok(status_str) => Ok(Json(ApiResponse::success(CommandResponse {
+            status: status_str,
+            message: Some(format!("Configuration '{}' update processed", request.key)),
+        }))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),
@@ -645,12 +644,10 @@ pub async fn clear_auth_cache(
     }
 
     match commands::clear_cache(&state.command_sender, &charge_point_id).await {
-        Ok(status_str) => {
-            Ok(Json(ApiResponse::success(CommandResponse {
-                status: status_str,
-                message: Some("Authorization cache cleared".to_string()),
-            })))
-        }
+        Ok(status_str) => Ok(Json(ApiResponse::success(CommandResponse {
+            status: status_str,
+            message: Some("Authorization cache cleared".to_string()),
+        }))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),

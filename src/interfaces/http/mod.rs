@@ -7,5 +7,7 @@
 pub mod handlers;
 pub mod middleware;
 pub mod router;
+pub mod dto;
 
 pub use router::create_api_router;
+pub use dto::*;

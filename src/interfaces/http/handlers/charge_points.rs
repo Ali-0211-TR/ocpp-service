@@ -8,10 +8,10 @@ use axum::{
     Json,
 };
 
-use crate::application::dto::{
+use crate::interfaces::http::{
     ApiResponse, ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest,
 };
-use crate::application::session::SharedSessionRegistry;
+use crate::application::SharedSessionRegistry;
 use crate::domain::Storage;
 
 /// Charge-point handler state
@@ -32,8 +32,10 @@ pub struct AppState {
 )]
 pub async fn list_charge_points(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<ChargePointDto>>>, (StatusCode, Json<ApiResponse<Vec<ChargePointDto>>>)>
-{
+) -> Result<
+    Json<ApiResponse<Vec<ChargePointDto>>>,
+    (StatusCode, Json<ApiResponse<Vec<ChargePointDto>>>),
+> {
     match state.storage.list_charge_points().await {
         Ok(charge_points) => {
             let dtos: Vec<ChargePointDto> = charge_points

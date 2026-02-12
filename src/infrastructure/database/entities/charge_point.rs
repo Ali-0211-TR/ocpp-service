@@ -7,30 +7,30 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
-    
+
     pub vendor: String,
     pub model: String,
-    
+
     #[sea_orm(nullable)]
     pub serial_number: Option<String>,
-    
+
     #[sea_orm(nullable)]
     pub firmware_version: Option<String>,
-    
+
     #[sea_orm(nullable)]
     pub iccid: Option<String>,
-    
+
     #[sea_orm(nullable)]
     pub imsi: Option<String>,
-    
+
     /// Status: Online, Offline, Unknown
     pub status: String,
-    
+
     #[sea_orm(nullable)]
     pub last_heartbeat: Option<DateTimeUtc>,
-    
+
     pub registered_at: DateTimeUtc,
-    
+
     #[sea_orm(nullable)]
     pub updated_at: Option<DateTimeUtc>,
 }

@@ -34,10 +34,7 @@ impl ProtocolNegotiator {
     ///
     /// Returns the best mutually-supported version, or `None` if no match.
     pub fn negotiate(&self, requested_protocols: &str) -> Option<OcppVersion> {
-        let requested: Vec<&str> = requested_protocols
-            .split(',')
-            .map(|s| s.trim())
-            .collect();
+        let requested: Vec<&str> = requested_protocols.split(',').map(|s| s.trim()).collect();
 
         // Try our preferred versions in order (highest first)
         for version in &self.supported_versions {
@@ -82,11 +79,7 @@ impl ProtocolAdapters {
     }
 
     /// Register an adapter factory for a specific OCPP version.
-    pub fn register(
-        &mut self,
-        version: OcppVersion,
-        factory: Arc<dyn OcppAdapterFactory>,
-    ) {
+    pub fn register(&mut self, version: OcppVersion, factory: Arc<dyn OcppAdapterFactory>) {
         info!(%version, "Registered protocol adapter");
         self.factories.insert(version, factory);
     }
@@ -139,19 +132,13 @@ mod tests {
     #[test]
     fn negotiate_single_match() {
         let negotiator = ProtocolNegotiator::new(vec![OcppVersion::V16]);
-        assert_eq!(
-            negotiator.negotiate("ocpp1.6"),
-            Some(OcppVersion::V16)
-        );
+        assert_eq!(negotiator.negotiate("ocpp1.6"), Some(OcppVersion::V16));
     }
 
     #[test]
     fn negotiate_multiple_prefers_highest() {
-        let negotiator = ProtocolNegotiator::new(vec![
-            OcppVersion::V21,
-            OcppVersion::V201,
-            OcppVersion::V16,
-        ]);
+        let negotiator =
+            ProtocolNegotiator::new(vec![OcppVersion::V21, OcppVersion::V201, OcppVersion::V16]);
         // CP supports both 1.6 and 2.0.1 — CS should pick 2.0.1 (highest mutual)
         assert_eq!(
             negotiator.negotiate("ocpp1.6, ocpp2.0.1"),

@@ -385,8 +385,8 @@ impl AppConfig {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Cannot create dirs {}: {}", parent.display(), e))?;
         }
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| format!("Serialization error: {}", e))?;
+        let content =
+            toml::to_string_pretty(self).map_err(|e| format!("Serialization error: {}", e))?;
 
         let header = "# Texnouz OCPP Central System — Configuration\n\
                       # Изменения вступят в силу после перезапуска сервера.\n\n";

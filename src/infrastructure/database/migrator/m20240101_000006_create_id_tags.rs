@@ -29,8 +29,16 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(IdTags::UserId).string().null())
                     .col(ColumnDef::new(IdTags::Name).string_len(255).null())
-                    .col(ColumnDef::new(IdTags::ExpiryDate).timestamp_with_time_zone().null())
-                    .col(ColumnDef::new(IdTags::MaxActiveTransactions).integer().null())
+                    .col(
+                        ColumnDef::new(IdTags::ExpiryDate)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(IdTags::MaxActiveTransactions)
+                            .integer()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(IdTags::IsActive)
                             .boolean()
@@ -47,7 +55,11 @@ impl MigrationTrait for Migration {
                             .timestamp_with_time_zone()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(IdTags::LastUsedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(IdTags::LastUsedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_id_tags_user")

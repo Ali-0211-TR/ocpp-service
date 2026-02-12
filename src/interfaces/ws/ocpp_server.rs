@@ -16,14 +16,14 @@ use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
 
-use crate::application::commands::SharedCommandSender;
 use crate::application::events::{
     ChargePointConnectedEvent, ChargePointDisconnectedEvent, Event, SharedEventBus,
 };
-use crate::application::session::SharedSessionRegistry;
+use crate::application::SharedCommandSender;
+use crate::application::SharedSessionRegistry;
 use crate::config::Config;
 use crate::domain::OcppVersion;
-use crate::support::shutdown::ShutdownSignal;
+use crate::shared::shutdown::ShutdownSignal;
 
 use super::negotiator::ProtocolAdapters;
 
@@ -215,9 +215,8 @@ async fn handle_connection(
 
     let negotiator = protocol_adapters.build_negotiator();
 
-    let ws_stream = tokio_tungstenite::accept_hdr_async(
-        stream,
-        |req: &Request, mut response: Response| {
+    let ws_stream =
+        tokio_tungstenite::accept_hdr_async(stream, |req: &Request, mut response: Response| {
             let path = req.uri().path();
             info!("WebSocket handshake from: {}, path: {}", addr, path);
 
@@ -260,14 +259,16 @@ async fn handle_connection(
                 charge_point_id = Some(format!("CP_{}", addr.port()));
                 Ok(response)
             }
-        },
-    )
-    .await?;
+        })
+        .await?;
 
     let charge_point_id = charge_point_id.unwrap_or_else(|| format!("CP_{}", addr.port()));
     let version = negotiated_version.unwrap_or(OcppVersion::V16);
 
-    info!("[{}] Connected from {} via {}", charge_point_id, addr, version);
+    info!(
+        "[{}] Connected from {} via {}",
+        charge_point_id, addr, version
+    );
 
     // ── Create version-specific adapter ────────────────────
     let adapter = protocol_adapters

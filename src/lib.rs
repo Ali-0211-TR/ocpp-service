@@ -11,15 +11,15 @@
 //! - **interfaces**: Delivery mechanisms (HTTP REST, WebSocket, gRPC placeholder)
 //! - **config**: Application configuration (TOML-based)
 
-pub mod support;
-pub mod domain;
 pub mod application;
+pub mod config;
+pub mod domain;
 pub mod infrastructure;
 pub mod interfaces;
-pub mod config;
+pub mod shared;
 
 // Re-export commonly used types at crate root
-pub use config::{AppConfig, Config, default_config_path};
+pub use application::events::{create_event_bus, Event, EventBus, SharedEventBus};
+pub use config::{default_config_path, AppConfig, Config};
 pub use infrastructure::{init_database, DatabaseConfig, DatabaseStorage};
 pub use interfaces::http::create_api_router;
-pub use application::events::{create_event_bus, Event, EventBus, SharedEventBus};

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
-use super::types::{Event, EventMessage};
+use crate::domain::events::{Event, EventMessage};
 
 const DEFAULT_CAPACITY: usize = 1024;
 

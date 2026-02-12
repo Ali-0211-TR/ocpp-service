@@ -1,14 +1,15 @@
 //! Repository traits for the domain layer
 //!
-//! Defines the Storage trait used by application services.
-//! Implementations live in `infrastructure::database::repositories`.
+//! The `Storage` trait spans multiple aggregates and lives here.
+//! Per-aggregate repository interfaces live in their respective modules
+//! (e.g. `domain::user::UserRepositoryInterface`).
 
 use async_trait::async_trait;
 
-use super::models::charge_point::{ChargePoint, ChargePointStatus};
-use super::models::tariff::{Tariff, TransactionBilling};
-use super::models::transaction::Transaction;
-use crate::support::errors::DomainError;
+use super::charge_point::{ChargePoint, ChargePointStatus};
+use super::tariff::{Tariff, TransactionBilling};
+use super::transaction::Transaction;
+use crate::shared::errors::DomainError;
 
 /// Result type for domain operations
 pub type DomainResult<T> = Result<T, DomainError>;

@@ -13,7 +13,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Transactions::Table)
-                    .add_column(ColumnDef::new(Transactions::LastMeterValue).integer().null())
+                    .add_column(
+                        ColumnDef::new(Transactions::LastMeterValue)
+                            .integer()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -40,7 +44,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Transactions::Table)
-                    .add_column(ColumnDef::new(Transactions::LastMeterUpdate).timestamp().null())
+                    .add_column(
+                        ColumnDef::new(Transactions::LastMeterUpdate)
+                            .timestamp()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -49,7 +57,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Transactions::Table)
-                    .add_column(ColumnDef::new(Transactions::LimitType).string_len(20).null())
+                    .add_column(
+                        ColumnDef::new(Transactions::LimitType)
+                            .string_len(20)
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;

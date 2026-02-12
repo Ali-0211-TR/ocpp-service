@@ -21,22 +21,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(ApiKeys::Name)
-                            .string_len(255)
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(ApiKeys::Name).string_len(255).not_null())
                     .col(
                         ColumnDef::new(ApiKeys::KeyHash)
                             .string_len(255)
                             .not_null()
                             .unique_key(),
                     )
-                    .col(
-                        ColumnDef::new(ApiKeys::Prefix)
-                            .string_len(50)
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(ApiKeys::Prefix).string_len(50).not_null())
                     .col(ColumnDef::new(ApiKeys::UserId).string().null())
                     .col(
                         ColumnDef::new(ApiKeys::Scopes)

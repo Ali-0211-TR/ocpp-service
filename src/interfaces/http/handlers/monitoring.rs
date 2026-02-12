@@ -7,8 +7,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::application::dto::ApiResponse;
-use crate::application::services::HeartbeatMonitor;
+use crate::interfaces::http::ApiResponse;
+use crate::application::HeartbeatMonitor;
 
 /// Monitoring state
 #[derive(Clone)]

@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::application::dto::ApiResponse;
+use crate::interfaces::http::ApiResponse;
 use crate::domain::{Tariff, TariffType};
 
 use super::charge_points::AppState;
@@ -192,7 +192,10 @@ pub async fn get_default_tariff(
         )),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::error(format!("Failed to get default tariff: {}", e))),
+            Json(ApiResponse::error(format!(
+                "Failed to get default tariff: {}",
+                e
+            ))),
         )),
     }
 }
@@ -234,10 +237,16 @@ pub async fn create_tariff(
     };
 
     match state.storage.save_tariff(tariff).await {
-        Ok(saved) => Ok((StatusCode::CREATED, Json(ApiResponse::success(saved.into())))),
+        Ok(saved) => Ok((
+            StatusCode::CREATED,
+            Json(ApiResponse::success(saved.into())),
+        )),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(format!("Failed to create tariff: {}", e))),
+            Json(ApiResponse::error(format!(
+                "Failed to create tariff: {}",
+                e
+            ))),
         )),
     }
 }
@@ -301,7 +310,10 @@ pub async fn update_tariff(
         Ok(()) => Ok(Json(ApiResponse::success(updated.into()))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::error(format!("Failed to update tariff: {}", e))),
+            Json(ApiResponse::error(format!(
+                "Failed to update tariff: {}",
+                e
+            ))),
         )),
     }
 }
@@ -325,7 +337,10 @@ pub async fn delete_tariff(
         Ok(()) => Ok(Json(ApiResponse::success("Tariff deleted".to_string()))),
         Err(e) => Err((
             StatusCode::NOT_FOUND,
-            Json(ApiResponse::error(format!("Failed to delete tariff: {}", e))),
+            Json(ApiResponse::error(format!(
+                "Failed to delete tariff: {}",
+                e
+            ))),
         )),
     }
 }

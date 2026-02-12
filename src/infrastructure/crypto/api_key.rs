@@ -44,17 +44,17 @@ pub struct GeneratedApiKey {
 /// Generate a new API key
 pub fn generate_api_key(name: &str, user_id: Option<&str>, scopes: Vec<String>) -> GeneratedApiKey {
     let mut rng = rand::thread_rng();
-    
+
     // Generate random bytes for the key
     let random_bytes: [u8; 32] = rng.gen();
     let key_suffix = hex::encode(random_bytes);
-    
+
     // Full key: prefix + random hex
     let full_key = format!("{}{}", API_KEY_PREFIX, key_suffix);
-    
+
     // Hash the key for storage
     let key_hash = hash_api_key(&full_key);
-    
+
     // Create key info
     let info = ApiKeyInfo {
         id: uuid::Uuid::new_v4().to_string(),
@@ -68,7 +68,7 @@ pub fn generate_api_key(name: &str, user_id: Option<&str>, scopes: Vec<String>) 
         last_used_at: None,
         is_active: true,
     };
-    
+
     GeneratedApiKey {
         key: full_key,
         info,
@@ -79,7 +79,7 @@ pub fn generate_api_key(name: &str, user_id: Option<&str>, scopes: Vec<String>) 
 pub fn hash_api_key(key: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    
+
     // For API keys, we use a simple hash since we need fast lookups
     // In production, consider using SHA-256 or similar
     let mut hasher = DefaultHasher::new();

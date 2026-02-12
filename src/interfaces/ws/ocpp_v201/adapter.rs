@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::application::commands::{CommandSender, SharedCommandSender};
 use crate::application::events::SharedEventBus;
-use crate::application::handlers::OcppHandlerV201;
 use crate::application::ports::{OcppAdapterFactory, OcppInboundPort};
-use crate::application::services::{BillingService, ChargePointService};
+use crate::application::OcppHandlerV201;
+use crate::application::{BillingService, ChargePointService};
+use crate::application::{CommandSender, SharedCommandSender};
 use crate::domain::OcppVersion;
 
 // ── V201InboundAdapter ─────────────────────────────────────────
@@ -93,10 +93,7 @@ impl V201AdapterFactory {
 }
 
 impl OcppAdapterFactory for V201AdapterFactory {
-    fn create_inbound_adapter(
-        &self,
-        charge_point_id: String,
-    ) -> Box<dyn OcppInboundPort> {
+    fn create_inbound_adapter(&self, charge_point_id: String) -> Box<dyn OcppInboundPort> {
         Box::new(V201InboundAdapter::new(
             charge_point_id,
             self.service.clone(),

@@ -42,87 +42,84 @@ impl std::fmt::Display for BillingStatus {
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    
+
     pub charge_point_id: String,
     pub connector_id: i32,
     pub id_tag: String,
-    
+
     pub meter_start: i32,
-    
+
     #[sea_orm(nullable)]
     pub meter_stop: Option<i32>,
-    
+
     pub started_at: DateTimeUtc,
-    
+
     #[sea_orm(nullable)]
     pub stopped_at: Option<DateTimeUtc>,
-    
+
     /// Reason for stopping: EmergencyStop, EVDisconnected, HardReset, Local,
     /// Other, PowerLoss, Reboot, Remote, SoftReset, UnlockCommand, DeAuthorized
     #[sea_orm(nullable)]
     pub stop_reason: Option<String>,
-    
+
     /// Energy consumed in Wh
     #[sea_orm(nullable)]
     pub energy_consumed: Option<i32>,
-    
+
     /// Transaction status: Active, Completed, Invalid
     pub status: String,
-    
+
     // Billing fields
-    
     /// Tariff ID used for billing
     #[sea_orm(nullable)]
     pub tariff_id: Option<i32>,
-    
+
     /// Total cost in smallest currency unit (e.g., cents)
     #[sea_orm(nullable)]
     pub total_cost: Option<i32>,
-    
+
     /// Currency code (ISO 4217)
     #[sea_orm(nullable)]
     pub currency: Option<String>,
-    
+
     /// Energy cost component
     #[sea_orm(nullable)]
     pub energy_cost: Option<i32>,
-    
+
     /// Time cost component
     #[sea_orm(nullable)]
     pub time_cost: Option<i32>,
-    
+
     /// Session fee component
     #[sea_orm(nullable)]
     pub session_fee: Option<i32>,
-    
+
     /// Billing status
     #[sea_orm(nullable)]
     pub billing_status: Option<String>,
-    
+
     // Live meter data fields
-    
     /// Last meter value reading (Wh)
     #[sea_orm(nullable)]
     pub last_meter_value: Option<i32>,
-    
+
     /// Current charging power (W)
     #[sea_orm(nullable, column_type = "Double")]
     pub current_power_w: Option<f64>,
-    
+
     /// Current State of Charge (%)
     #[sea_orm(nullable)]
     pub current_soc: Option<i32>,
-    
+
     /// Timestamp of last meter values update
     #[sea_orm(nullable)]
     pub last_meter_update: Option<DateTimeUtc>,
-    
+
     // Charging limit fields
-    
     /// Limit type: "energy" (kWh), "amount" (cost), "soc" (%)
     #[sea_orm(nullable)]
     pub limit_type: Option<String>,
-    
+
     /// Limit value (kWh for energy, smallest currency unit for amount, % for soc)
     #[sea_orm(nullable, column_type = "Double")]
     pub limit_value: Option<f64>,
@@ -136,7 +133,7 @@ pub enum Relation {
         to = "super::charge_point::Column::Id"
     )]
     ChargePoint,
-    
+
     #[sea_orm(
         belongs_to = "super::tariff::Entity",
         from = "Column::TariffId",
@@ -162,16 +159,15 @@ impl ActiveModelBehavior for ActiveModel {}
 impl Model {
     /// Calculate duration in seconds
     pub fn duration_seconds(&self) -> Option<i64> {
-        self.stopped_at.map(|stop| {
-            (stop - self.started_at).num_seconds()
-        })
+        self.stopped_at
+            .map(|stop| (stop - self.started_at).num_seconds())
     }
-    
+
     /// Get energy consumed in kWh
     pub fn energy_kwh(&self) -> Option<f64> {
         self.energy_consumed.map(|wh| wh as f64 / 1000.0)
     }
-    
+
     /// Format total cost as string
     pub fn format_cost(&self) -> Option<String> {
         match (self.total_cost, &self.currency) {

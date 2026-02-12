@@ -45,34 +45,34 @@ pub struct Model {
     /// The ID tag value (RFID card number)
     #[sea_orm(primary_key, auto_increment = false)]
     pub id_tag: String,
-    
+
     /// Parent ID tag (for group authorization)
     pub parent_id_tag: Option<String>,
-    
+
     /// Current status of the tag
     pub status: IdTagStatus,
-    
+
     /// Optional user ID this tag belongs to
     pub user_id: Option<String>,
-    
+
     /// Display name for the tag
     pub name: Option<String>,
-    
+
     /// Expiry date of the tag
     pub expiry_date: Option<DateTime<Utc>>,
-    
+
     /// Maximum active transactions allowed (None = unlimited)
     pub max_active_transactions: Option<i32>,
-    
+
     /// Whether the tag is active
     pub is_active: bool,
-    
+
     /// When the tag was created
     pub created_at: DateTime<Utc>,
-    
+
     /// When the tag was last updated
     pub updated_at: DateTime<Utc>,
-    
+
     /// Last time this tag was used for authorization
     pub last_used_at: Option<DateTime<Utc>>,
 }
@@ -86,7 +86,7 @@ pub enum Relation {
         on_delete = "SetNull"
     )]
     User,
-    
+
     #[sea_orm(
         belongs_to = "Entity",
         from = "Column::ParentIdTag",
@@ -110,33 +110,33 @@ impl Model {
         if !self.is_active {
             return false;
         }
-        
+
         if self.status != IdTagStatus::Accepted {
             return false;
         }
-        
+
         // Check expiry
         if let Some(expiry) = self.expiry_date {
             if Utc::now() > expiry {
                 return false;
             }
         }
-        
+
         true
     }
-    
+
     /// Get the OCPP authorization status for this tag
     pub fn get_auth_status(&self) -> IdTagStatus {
         if !self.is_active {
             return IdTagStatus::Invalid;
         }
-        
+
         if let Some(expiry) = self.expiry_date {
             if Utc::now() > expiry {
                 return IdTagStatus::Expired;
             }
         }
-        
+
         self.status.clone()
     }
 }

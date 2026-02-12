@@ -20,11 +20,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(Tariffs::Name)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Tariffs::Name).string().not_null())
                     .col(ColumnDef::new(Tariffs::Description).string())
                     .col(
                         ColumnDef::new(Tariffs::TariffType)
@@ -130,12 +126,12 @@ impl MigrationTrait for Migration {
                 "Standard".into(),
                 "Default tariff for all charge points".into(),
                 "PerKwh".into(),
-                250.into(),  // 2.50 per kWh (in cents)
+                250.into(), // 2.50 per kWh (in cents)
                 0.into(),
                 0.into(),
                 "UZS".into(),
-                100.into(),  // Min fee 1.00
-                0.into(),    // No max
+                100.into(), // Min fee 1.00
+                0.into(),   // No max
                 true.into(),
                 true.into(),
                 chrono::Utc::now().to_rfc3339().into(),

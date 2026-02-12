@@ -8,10 +8,10 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 
 use tauri::{
-    AppHandle, Manager, Runtime, State,
     image::Image,
-    menu::{Menu, MenuItem, MenuEvent, PredefinedMenuItem},
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
+    AppHandle, Manager, Runtime, State,
 };
 
 use texnouz_ocpp::config::{default_config_path, AppConfig};
@@ -221,27 +221,27 @@ fn get_config_path(state: State<'_, ServerState>) -> String {
 
 // ── Tray Menu ──────────────────────────────────────────────────
 
-fn build_tray_menu<R: Runtime>(
-    app: &impl Manager<R>,
-    running: bool,
-) -> tauri::Result<Menu<R>> {
+fn build_tray_menu<R: Runtime>(app: &impl Manager<R>, running: bool) -> tauri::Result<Menu<R>> {
     let status_text = if running {
         "🟢 Texnouz OCPP — Работает"
     } else {
         "🔴 Texnouz OCPP — Остановлен"
     };
 
-    Menu::with_items(app, &[
-        &MenuItem::with_id(app, "status", status_text, false, None::<&str>)?,
-        &PredefinedMenuItem::separator(app)?,
-        &MenuItem::with_id(app, "start",   "▶️  Запустить",     !running, None::<&str>)?,
-        &MenuItem::with_id(app, "stop",    "⏹  Остановить",    running,  None::<&str>)?,
-        &MenuItem::with_id(app, "restart", "🔄  Перезапустить", running,  None::<&str>)?,
-        &PredefinedMenuItem::separator(app)?,
-        &MenuItem::with_id(app, "settings", "⚙️  Настройки",    true, None::<&str>)?,
-        &PredefinedMenuItem::separator(app)?,
-        &MenuItem::with_id(app, "quit", "❌  Выйти", true, None::<&str>)?,
-    ])
+    Menu::with_items(
+        app,
+        &[
+            &MenuItem::with_id(app, "status", status_text, false, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "start", "▶️  Запустить", !running, None::<&str>)?,
+            &MenuItem::with_id(app, "stop", "⏹  Остановить", running, None::<&str>)?,
+            &MenuItem::with_id(app, "restart", "🔄  Перезапустить", running, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "settings", "⚙️  Настройки", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "quit", "❌  Выйти", true, None::<&str>)?,
+        ],
+    )
 }
 
 fn refresh_tray<R: Runtime>(app: &AppHandle<R>, state: &ServerState) {

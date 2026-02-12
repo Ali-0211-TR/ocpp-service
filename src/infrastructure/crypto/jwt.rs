@@ -97,7 +97,10 @@ pub fn create_token(
 }
 
 /// Verify and decode a JWT token
-pub fn verify_token(token: &str, config: &JwtConfig) -> Result<TokenClaims, jsonwebtoken::errors::Error> {
+pub fn verify_token(
+    token: &str,
+    config: &JwtConfig,
+) -> Result<TokenClaims, jsonwebtoken::errors::Error> {
     let mut validation = Validation::default();
     validation.set_issuer(&[&config.issuer]);
 

@@ -13,7 +13,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::application::dto::{ApiResponse, PaginatedResponse};
+use crate::interfaces::http::{ApiResponse, PaginatedResponse};
 use crate::infrastructure::database::entities::id_tag::{self, IdTagStatus};
 
 /// IdTag handler state
@@ -137,11 +137,12 @@ pub async fn list_id_tags(
         query = query.filter(id_tag::Column::UserId.eq(user_id));
     }
 
-    let total = query
-        .clone()
-        .count(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+    let total = query.clone().count(&state.db).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )
+    })?;
 
     let page = params.page.max(1) as u32;
     let page_size = params.page_size.min(100).max(1) as u32;
@@ -152,7 +153,12 @@ pub async fn list_id_tags(
         .limit(page_size as u64)
         .all(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     let items: Vec<IdTagDto> = tags.into_iter().map(IdTagDto::from).collect();
     Ok(Json(PaginatedResponse::new(items, total, page, page_size)))
@@ -176,11 +182,19 @@ pub async fn get_id_tag(
     let tag = id_tag::Entity::find_by_id(&id_tag_value)
         .one(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     match tag {
         Some(t) => Ok(Json(ApiResponse::success(IdTagDto::from(t)))),
-        None => Err((StatusCode::NOT_FOUND, Json(ApiResponse::error("IdTag not found")))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("IdTag not found")),
+        )),
     }
 }
 
@@ -210,7 +224,12 @@ pub async fn create_id_tag(
     let existing = id_tag::Entity::find_by_id(&request.id_tag)
         .one(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     if existing.is_some() {
         return Err((
@@ -242,12 +261,17 @@ pub async fn create_id_tag(
         last_used_at: Set(None),
     };
 
-    let created = new_tag
-        .insert(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+    let created = new_tag.insert(&state.db).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )
+    })?;
 
-    Ok((StatusCode::CREATED, Json(ApiResponse::success(IdTagDto::from(created)))))
+    Ok((
+        StatusCode::CREATED,
+        Json(ApiResponse::success(IdTagDto::from(created))),
+    ))
 }
 
 #[utoipa::path(
@@ -270,10 +294,18 @@ pub async fn update_id_tag(
     let tag = id_tag::Entity::find_by_id(&id_tag_value)
         .one(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     let Some(tag) = tag else {
-        return Err((StatusCode::NOT_FOUND, Json(ApiResponse::error("IdTag not found"))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("IdTag not found")),
+        ));
     };
 
     let mut active: id_tag::ActiveModel = tag.into();
@@ -304,10 +336,12 @@ pub async fn update_id_tag(
         active.is_active = Set(is_active);
     }
 
-    let updated = active
-        .update(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+    let updated = active.update(&state.db).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )
+    })?;
 
     Ok(Json(ApiResponse::success(IdTagDto::from(updated))))
 }
@@ -330,10 +364,18 @@ pub async fn delete_id_tag(
     let result = id_tag::Entity::delete_by_id(&id_tag_value)
         .exec(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     if result.rows_affected == 0 {
-        return Err((StatusCode::NOT_FOUND, Json(ApiResponse::error("IdTag not found"))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("IdTag not found")),
+        ));
     }
 
     Ok(Json(ApiResponse::success(())))
@@ -357,20 +399,30 @@ pub async fn block_id_tag(
     let tag = id_tag::Entity::find_by_id(&id_tag_value)
         .one(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     let Some(tag) = tag else {
-        return Err((StatusCode::NOT_FOUND, Json(ApiResponse::error("IdTag not found"))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("IdTag not found")),
+        ));
     };
 
     let mut active: id_tag::ActiveModel = tag.into();
     active.status = Set(IdTagStatus::Blocked);
     active.updated_at = Set(Utc::now());
 
-    let updated = active
-        .update(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+    let updated = active.update(&state.db).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )
+    })?;
 
     Ok(Json(ApiResponse::success(IdTagDto::from(updated))))
 }
@@ -393,20 +445,30 @@ pub async fn unblock_id_tag(
     let tag = id_tag::Entity::find_by_id(&id_tag_value)
         .one(&state.db)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            )
+        })?;
 
     let Some(tag) = tag else {
-        return Err((StatusCode::NOT_FOUND, Json(ApiResponse::error("IdTag not found"))));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("IdTag not found")),
+        ));
     };
 
     let mut active: id_tag::ActiveModel = tag.into();
     active.status = Set(IdTagStatus::Accepted);
     active.updated_at = Set(Utc::now());
 
-    let updated = active
-        .update(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::error(e.to_string()))))?;
+    let updated = active.update(&state.db).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )
+    })?;
 
     Ok(Json(ApiResponse::success(IdTagDto::from(updated))))
 }

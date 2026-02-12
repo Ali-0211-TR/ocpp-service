@@ -15,17 +15,19 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::application::dto::*;
-use crate::application::commands::CommandSender;
+use crate::interfaces::http::*;
 use crate::application::events::SharedEventBus;
-use crate::application::services::{ChargePointService, HeartbeatMonitor};
-use crate::application::session::SharedSessionRegistry;
+use crate::application::CommandSender;
+use crate::application::SharedSessionRegistry;
+use crate::application::{ChargePointService, HeartbeatMonitor};
 use crate::domain::Storage;
 use crate::infrastructure::crypto::jwt::JwtConfig;
 use crate::interfaces::http::middleware::{auth_middleware, AuthState};
 use crate::interfaces::ws::{create_notification_state, ws_notifications_handler};
 
-use super::handlers::{api_keys, auth, charge_points, commands, health, id_tags, monitoring, tariffs, transactions};
+use super::handlers::{
+    api_keys, auth, charge_points, commands, health, id_tags, monitoring, tariffs, transactions,
+};
 
 /// Unified state for all charge-point related routes (CP CRUD + commands + transactions).
 /// Axum extracts the specific handler state via `FromRef`.
@@ -398,10 +400,7 @@ pub fn create_api_router(
     // IdTag routes (protected)
     let id_tag_state = id_tags::IdTagHandlerState { db: db.clone() };
     let id_tag_routes = Router::new()
-        .route(
-            "/",
-            get(id_tags::list_id_tags).post(id_tags::create_id_tag),
-        )
+        .route("/", get(id_tags::list_id_tags).post(id_tags::create_id_tag))
         .route(
             "/{id_tag}",
             get(id_tags::get_id_tag)
@@ -422,10 +421,7 @@ pub fn create_api_router(
         session_registry: session_registry.clone(),
     };
     let tariff_routes = Router::new()
-        .route(
-            "/",
-            get(tariffs::list_tariffs).post(tariffs::create_tariff),
-        )
+        .route("/", get(tariffs::list_tariffs).post(tariffs::create_tariff))
         .route("/default", get(tariffs::get_default_tariff))
         .route("/preview-cost", post(tariffs::preview_cost))
         .route(
@@ -457,9 +453,7 @@ pub fn create_api_router(
         });
 
     // Monitoring routes (protected)
-    let monitoring_state = monitoring::MonitoringState {
-        heartbeat_monitor,
-    };
+    let monitoring_state = monitoring::MonitoringState { heartbeat_monitor };
     let monitoring_routes = Router::new()
         .route("/stats", get(monitoring::get_connection_stats))
         .route("/heartbeats", get(monitoring::get_heartbeat_statuses))
@@ -476,8 +470,7 @@ pub fn create_api_router(
         .route("/ws", get(ws_notifications_handler))
         .with_state(notification_state);
 
-    let swagger_routes =
-        SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi());
+    let swagger_routes = SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi());
 
     // Build router
     Router::new()

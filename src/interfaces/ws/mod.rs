@@ -13,9 +13,7 @@ pub mod ocpp_v16;
 pub mod ocpp_v201;
 
 pub use negotiator::ProtocolAdapters;
-pub use notifications::{
-    create_notification_state, ws_notifications_handler, NotificationState,
-};
+pub use notifications::{create_notification_state, ws_notifications_handler, NotificationState};
 pub use ocpp_server::OcppServer;
 pub use ocpp_v16::V16AdapterFactory;
 pub use ocpp_v201::V201AdapterFactory;

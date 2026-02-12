@@ -9,7 +9,7 @@ use axum::{
 };
 use tracing::info;
 
-use crate::application::dto::{
+use crate::interfaces::http::{
     ApiResponse, PaginatedResponse, PaginationParams, TransactionDto, TransactionFilter,
 };
 use crate::domain::Storage;

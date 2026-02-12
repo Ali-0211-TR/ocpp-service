@@ -10,14 +10,14 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use sea_orm::prelude::Expr;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde_json::json;
 
-use crate::infrastructure::crypto::api_key::hash_api_key;
-use crate::infrastructure::crypto::jwt::{verify_token, TokenClaims, JwtConfig};
-use crate::infrastructure::database::entities::api_key;
 use crate::domain::Storage;
+use crate::infrastructure::crypto::api_key::hash_api_key;
+use crate::infrastructure::crypto::jwt::{verify_token, JwtConfig, TokenClaims};
+use crate::infrastructure::database::entities::api_key;
 
 /// API key prefix
 const API_KEY_PREFIX: &str = "txocpp_";
@@ -191,10 +191,7 @@ async fn try_api_key_auth(api_key_str: &str, auth_state: &AuthState) -> Option<A
     tokio::spawn(async move {
         let _ = api_key::Entity::update_many()
             .filter(api_key::Column::Id.eq(&key_id))
-            .col_expr(
-                api_key::Column::LastUsedAt,
-                Expr::value(chrono::Utc::now()),
-            )
+            .col_expr(api_key::Column::LastUsedAt, Expr::value(chrono::Utc::now()))
             .exec(&db)
             .await;
     });

@@ -1,4 +1,3 @@
-//! Texnouz OCPP Central System
 //!
 //! OCPP 1.6 WebSocket server for managing EV charging stations.
 //! Reads configuration from TOML file (~/.config/texnouz-ocpp/config.toml).
@@ -8,18 +7,20 @@ use std::sync::Arc;
 use sea_orm_migration::MigratorTrait;
 use tracing::{error, info, warn};
 
-use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
 use texnouz_ocpp::application::commands::create_command_sender;
+use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
 use texnouz_ocpp::application::session::SessionRegistry;
 use texnouz_ocpp::config::AppConfig;
 use texnouz_ocpp::domain::OcppVersion;
 use texnouz_ocpp::infrastructure::crypto::jwt::JwtConfig;
 use texnouz_ocpp::infrastructure::database::migrator::Migrator;
-use texnouz_ocpp::interfaces::ws::{OcppServer, ProtocolAdapters, V16AdapterFactory, V201AdapterFactory};
-use texnouz_ocpp::support::shutdown::ShutdownCoordinator;
+use texnouz_ocpp::interfaces::ws::{
+    OcppServer, ProtocolAdapters, V16AdapterFactory, V201AdapterFactory,
+};
+use texnouz_ocpp::shared::shutdown::ShutdownCoordinator;
 use texnouz_ocpp::{
-    create_api_router, create_event_bus, default_config_path, init_database, Config, DatabaseConfig,
-    DatabaseStorage,
+    create_api_router, create_event_bus, default_config_path, init_database, Config,
+    DatabaseConfig, DatabaseStorage,
 };
 
 #[tokio::main]
@@ -88,7 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     create_default_admin(&db, &app_cfg).await;
 
     // Initialize storage (using database)
-    let storage: Arc<dyn texnouz_ocpp::domain::Storage> = Arc::new(DatabaseStorage::new(db.clone()));
+    let storage: Arc<dyn texnouz_ocpp::domain::Storage> =
+        Arc::new(DatabaseStorage::new(db.clone()));
 
     // Initialize services
     let service = Arc::new(ChargePointService::new(storage.clone()));

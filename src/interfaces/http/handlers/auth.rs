@@ -1,16 +1,12 @@
 //! Authentication API handlers
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, Json};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::application::dto::ApiResponse;
+use crate::interfaces::http::ApiResponse;
 use crate::infrastructure::crypto::jwt::{create_token, JwtConfig};
 use crate::infrastructure::crypto::password::{hash_password, verify_password};
 use crate::infrastructure::database::entities::user;
@@ -113,14 +109,13 @@ pub async fn login(
         user::UserRole::Viewer => "viewer",
     };
 
-    let token = create_token(&user.id, &user.username, role_str, &state.jwt_config).map_err(
-        |e| {
+    let token =
+        create_token(&user.id, &user.username, role_str, &state.jwt_config).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiResponse::error(e.to_string())),
             )
-        },
-    )?;
+        })?;
 
     let response = LoginResponse {
         token,
