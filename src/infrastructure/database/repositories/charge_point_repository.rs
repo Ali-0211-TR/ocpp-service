@@ -11,6 +11,7 @@ use sea_orm::{
 use crate::domain::charge_point::{
     ChargePoint, ChargePointRepository, ChargePointStatus, Connector, ConnectorStatus,
 };
+use crate::domain::OcppVersion;
 use crate::domain::{DomainError, DomainResult};
 use crate::infrastructure::database::entities::{charge_point, connector};
 
@@ -68,6 +69,23 @@ fn db_err(e: sea_orm::DbErr) -> DomainError {
     DomainError::Validation(format!("Database error: {}", e))
 }
 
+fn ocpp_version_to_string(v: &OcppVersion) -> String {
+    match v {
+        OcppVersion::V16 => "V16".to_string(),
+        OcppVersion::V201 => "V201".to_string(),
+        OcppVersion::V21 => "V21".to_string(),
+    }
+}
+
+fn string_to_ocpp_version(s: &str) -> Option<OcppVersion> {
+    match s {
+        "V16" => Some(OcppVersion::V16),
+        "V201" => Some(OcppVersion::V201),
+        "V21" => Some(OcppVersion::V21),
+        _ => None,
+    }
+}
+
 fn connectors_from_models(models: Vec<connector::Model>) -> Vec<Connector> {
     models
         .into_iter()
@@ -85,14 +103,15 @@ fn connectors_from_models(models: Vec<connector::Model>) -> Vec<Connector> {
 fn cp_from_model(model: charge_point::Model, connectors: Vec<Connector>) -> ChargePoint {
     ChargePoint {
         id: model.id,
+        ocpp_version: model.ocpp_version.as_deref().and_then(string_to_ocpp_version),
         vendor: Some(model.vendor),
         model: Some(model.model),
         serial_number: model.serial_number,
         firmware_version: model.firmware_version,
         iccid: model.iccid,
         imsi: model.imsi,
-        meter_type: None,
-        meter_serial_number: None,
+        meter_type: model.meter_type,
+        meter_serial_number: model.meter_serial_number,
         status: string_to_status(&model.status),
         connectors,
         registered_at: model.registered_at,
@@ -170,6 +189,9 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
             firmware_version: Set(cp.firmware_version),
             iccid: Set(cp.iccid),
             imsi: Set(cp.imsi),
+            ocpp_version: Set(cp.ocpp_version.as_ref().map(ocpp_version_to_string)),
+            meter_type: Set(cp.meter_type),
+            meter_serial_number: Set(cp.meter_serial_number),
             status: Set(status_to_string(&cp.status)),
             last_heartbeat: Set(cp.last_heartbeat),
             registered_at: Set(cp.registered_at),
@@ -235,6 +257,9 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
             firmware_version: Set(cp.firmware_version),
             iccid: Set(cp.iccid),
             imsi: Set(cp.imsi),
+            ocpp_version: Set(cp.ocpp_version.as_ref().map(ocpp_version_to_string)),
+            meter_type: Set(cp.meter_type),
+            meter_serial_number: Set(cp.meter_serial_number),
             status: Set(status_to_string(&cp.status)),
             last_heartbeat: Set(cp.last_heartbeat),
             registered_at: Set(cp.registered_at),
@@ -274,6 +299,9 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
             firmware_version: NotSet,
             iccid: NotSet,
             imsi: NotSet,
+            ocpp_version: NotSet,
+            meter_type: NotSet,
+            meter_serial_number: NotSet,
             last_heartbeat: NotSet,
             registered_at: NotSet,
         };

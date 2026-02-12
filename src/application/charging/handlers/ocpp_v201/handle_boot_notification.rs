@@ -9,6 +9,7 @@ use tracing::{error, info};
 
 use crate::application::events::{BootNotificationEvent, Event};
 use crate::application::OcppHandlerV201;
+use crate::domain::OcppVersion;
 
 pub async fn handle_boot_notification(
     handler: &OcppHandlerV201,
@@ -42,6 +43,13 @@ pub async fn handle_boot_notification(
         "V201 BootNotification"
     );
 
+    // OCPP 2.0.1: modem ICCID/IMSI live inside charging_station.modem
+    let (iccid, imsi) = cs
+        .modem
+        .as_ref()
+        .map(|m| (m.iccid.as_deref(), m.imsi.as_deref()))
+        .unwrap_or((None, None));
+
     let _ = handler
         .service
         .register_or_update(
@@ -50,6 +58,11 @@ pub async fn handle_boot_notification(
             &cs.model,
             cs.serial_number.as_deref(),
             cs.firmware_version.as_deref(),
+            OcppVersion::V201,
+            iccid,
+            imsi,
+            None, // meter_type: not in OCPP 2.0.1
+            None, // meter_serial_number: not in OCPP 2.0.1
         )
         .await;
 
@@ -66,6 +79,7 @@ pub async fn handle_boot_notification(
             model: cs.model.clone(),
             serial_number: cs.serial_number.clone(),
             firmware_version: cs.firmware_version.clone(),
+            ocpp_version: OcppVersion::V201.version_string().to_string(),
             timestamp: Utc::now(),
         }));
 

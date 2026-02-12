@@ -23,6 +23,18 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub imsi: Option<String>,
 
+    /// Negotiated OCPP protocol version: "V16", "V201", "V21"
+    #[sea_orm(nullable)]
+    pub ocpp_version: Option<String>,
+
+    /// Meter type (OCPP 1.6 BootNotification optional field)
+    #[sea_orm(nullable)]
+    pub meter_type: Option<String>,
+
+    /// Meter serial number (OCPP 1.6 BootNotification optional field)
+    #[sea_orm(nullable)]
+    pub meter_serial_number: Option<String>,
+
     /// Status: Online, Offline, Unknown
     pub status: String,
 

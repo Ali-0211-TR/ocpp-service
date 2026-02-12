@@ -6,7 +6,8 @@ use dashmap::DashMap;
 use tracing::info;
 
 use crate::domain::{
-    ChargePoint, ChargingLimitType, ConnectorStatus, DomainResult, RepositoryProvider, Transaction,
+    ChargePoint, ChargingLimitType, ConnectorStatus, DomainResult, OcppVersion, RepositoryProvider,
+    Transaction,
 };
 use crate::shared::errors::DomainError;
 
@@ -64,15 +65,25 @@ impl ChargePointService {
         model: &str,
         serial_number: Option<&str>,
         firmware_version: Option<&str>,
+        ocpp_version: OcppVersion,
+        iccid: Option<&str>,
+        imsi: Option<&str>,
+        meter_type: Option<&str>,
+        meter_serial_number: Option<&str>,
     ) -> DomainResult<ChargePoint> {
         let existing = self.repos.charge_points().find_by_id(charge_point_id).await?;
 
         let mut cp = existing.unwrap_or_else(|| ChargePoint::new(charge_point_id));
 
+        cp.ocpp_version = Some(ocpp_version);
         cp.vendor = Some(vendor.to_string());
         cp.model = Some(model.to_string());
         cp.serial_number = serial_number.map(String::from);
         cp.firmware_version = firmware_version.map(String::from);
+        cp.iccid = iccid.map(String::from);
+        cp.imsi = imsi.map(String::from);
+        cp.meter_type = meter_type.map(String::from);
+        cp.meter_serial_number = meter_serial_number.map(String::from);
         cp.set_online();
         cp.update_heartbeat();
 
@@ -88,7 +99,7 @@ impl ChargePointService {
             self.repos.charge_points().save(cp.clone()).await?;
         }
 
-        info!(charge_point_id, vendor, model, "Charge point registered");
+        info!(charge_point_id, vendor, model, %ocpp_version, "Charge point registered");
 
         Ok(cp)
     }

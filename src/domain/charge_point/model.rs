@@ -2,6 +2,8 @@
 
 use chrono::{DateTime, Utc};
 
+use super::super::ocpp::OcppVersion;
+
 /// Connector status on a charge point
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectorStatus {
@@ -98,6 +100,8 @@ impl Connector {
 pub struct ChargePoint {
     /// Unique identifier
     pub id: String,
+    /// Negotiated OCPP protocol version (set on first BootNotification)
+    pub ocpp_version: Option<OcppVersion>,
     /// Vendor name
     pub vendor: Option<String>,
     /// Model name
@@ -128,6 +132,7 @@ impl ChargePoint {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            ocpp_version: None,
             vendor: None,
             model: None,
             serial_number: None,

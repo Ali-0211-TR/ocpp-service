@@ -9,6 +9,7 @@ use tracing::{error, info};
 
 use crate::application::events::{BootNotificationEvent, Event};
 use crate::application::OcppHandlerV16;
+use crate::domain::OcppVersion;
 
 pub async fn handle_boot_notification(
     handler: &OcppHandlerV16,
@@ -41,6 +42,11 @@ pub async fn handle_boot_notification(
             &payload.charge_point_model,
             payload.charge_point_serial_number.as_deref(),
             payload.firmware_version.as_deref(),
+            OcppVersion::V16,
+            payload.iccid.as_deref(),
+            payload.imsi.as_deref(),
+            payload.meter_type.as_deref(),
+            payload.meter_serial_number.as_deref(),
         )
         .await;
 
@@ -57,6 +63,7 @@ pub async fn handle_boot_notification(
             model: payload.charge_point_model.clone(),
             serial_number: payload.charge_point_serial_number.clone(),
             firmware_version: payload.firmware_version.clone(),
+            ocpp_version: OcppVersion::V16.version_string().to_string(),
             timestamp: Utc::now(),
         }));
 

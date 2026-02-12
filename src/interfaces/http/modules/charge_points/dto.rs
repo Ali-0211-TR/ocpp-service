@@ -10,6 +10,9 @@ use crate::domain::{ChargePoint, Connector, ConnectorStatus};
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChargePointDto {
     pub id: String,
+    /// OCPP protocol version: "1.6", "2.0.1", "2.1"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ocpp_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vendor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,6 +25,10 @@ pub struct ChargePointDto {
     pub iccid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imsi: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meter_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meter_serial_number: Option<String>,
     pub status: String,
     pub is_online: bool,
     pub connectors: Vec<ConnectorDto>,
@@ -34,12 +41,15 @@ impl ChargePointDto {
     pub fn from_domain(cp: ChargePoint, is_online: bool) -> Self {
         Self {
             id: cp.id,
+            ocpp_version: cp.ocpp_version.map(|v| v.version_string().to_string()),
             vendor: cp.vendor,
             model: cp.model,
             serial_number: cp.serial_number,
             firmware_version: cp.firmware_version,
             iccid: cp.iccid,
             imsi: cp.imsi,
+            meter_type: cp.meter_type,
+            meter_serial_number: cp.meter_serial_number,
             status: cp.status.to_string(),
             is_online,
             connectors: cp

@@ -289,6 +289,7 @@ async fn handle_connection(
 
     event_bus.publish(Event::ChargePointConnected(ChargePointConnectedEvent {
         charge_point_id: charge_point_id.clone(),
+        ocpp_version: version.version_string().to_string(),
         timestamp: Utc::now(),
         remote_addr: Some(addr.to_string()),
     }));

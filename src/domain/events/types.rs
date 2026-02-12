@@ -59,6 +59,7 @@ impl Event {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChargePointConnectedEvent {
     pub charge_point_id: String,
+    pub ocpp_version: String,
     pub timestamp: DateTime<Utc>,
     pub remote_addr: Option<String>,
 }
@@ -144,6 +145,7 @@ pub struct BootNotificationEvent {
     pub model: String,
     pub serial_number: Option<String>,
     pub firmware_version: Option<String>,
+    pub ocpp_version: String,
     pub timestamp: DateTime<Utc>,
 }
 
