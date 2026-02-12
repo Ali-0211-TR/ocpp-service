@@ -5,13 +5,15 @@
 //! via the `Sec-WebSocket-Protocol` header and creates the appropriate
 //! version-specific adapter for each connection.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use chrono::Utc;
+use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{error, info, warn};
@@ -41,6 +43,8 @@ pub struct OcppServer {
     shutdown_signal: Option<ShutdownSignal>,
     event_bus: SharedEventBus,
     repos: Arc<dyn RepositoryProvider>,
+    /// Per-IP WebSocket connection rate limiter: max connections per minute
+    ws_rate_limiter: Arc<WsRateLimiter>,
 }
 
 impl OcppServer {
@@ -55,6 +59,7 @@ impl OcppServer {
         command_sender: SharedCommandSender,
         event_bus: SharedEventBus,
         repos: Arc<dyn RepositoryProvider>,
+        ws_connections_per_minute: u32,
     ) -> Self {
         Self {
             config,
@@ -64,6 +69,7 @@ impl OcppServer {
             shutdown_signal: None,
             event_bus,
             repos,
+            ws_rate_limiter: Arc::new(WsRateLimiter::new(ws_connections_per_minute)),
         }
     }
 
@@ -136,6 +142,16 @@ impl OcppServer {
     }
 
     fn spawn_connection(&self, stream: TcpStream, addr: SocketAddr) {
+        // WS rate limiting: check per-IP connection rate
+        if !self.ws_rate_limiter.check(addr.ip()) {
+            warn!(
+                "🛡️ WS rate limit exceeded for IP {}, dropping connection",
+                addr.ip()
+            );
+            // Just drop the stream — the TCP connection will be closed
+            return;
+        }
+
         let session_registry = self.session_registry.clone();
         let protocol_adapters = self.protocol_adapters.clone();
         let command_sender = self.command_sender.clone();
@@ -431,4 +447,44 @@ async fn handle_connection(
     info!("[{}] Disconnected", charge_point_id);
 
     Ok(())
+}
+
+// ── WebSocket connection rate limiter ──────────────────────────
+
+/// Simple per-IP sliding-window rate limiter for WebSocket connections.
+///
+/// Tracks connection timestamps per IP and rejects new connections
+/// if the count within the last 60 seconds exceeds the configured limit.
+struct WsRateLimiter {
+    /// Map from IP address to list of connection timestamps within the window
+    connections: DashMap<IpAddr, Vec<Instant>>,
+    /// Maximum connections per minute per IP
+    max_per_minute: u32,
+}
+
+impl WsRateLimiter {
+    fn new(max_per_minute: u32) -> Self {
+        Self {
+            connections: DashMap::new(),
+            max_per_minute,
+        }
+    }
+
+    /// Check if a new connection from this IP is allowed.
+    /// Returns `true` if allowed, `false` if rate-limited.
+    fn check(&self, ip: IpAddr) -> bool {
+        let now = Instant::now();
+        let window = std::time::Duration::from_secs(60);
+
+        let mut entry = self.connections.entry(ip).or_default();
+        // Remove timestamps older than the window
+        entry.retain(|t| now.duration_since(*t) < window);
+
+        if entry.len() >= self.max_per_minute as usize {
+            false
+        } else {
+            entry.push(now);
+            true
+        }
+    }
 }

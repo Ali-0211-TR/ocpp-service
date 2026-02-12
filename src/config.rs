@@ -31,6 +31,10 @@ pub struct AppConfig {
     /// CORS settings
     #[serde(default)]
     pub cors: CorsConfig,
+
+    /// Rate limiting
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
 }
 
 /// WebSocket + REST server settings
@@ -162,6 +166,22 @@ pub struct CorsConfig {
     pub allowed_origins: Vec<String>,
 }
 
+/// Rate limiting configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// Maximum API requests per minute per IP (general endpoints)
+    #[serde(default = "default_api_rpm")]
+    pub api_requests_per_minute: u32,
+
+    /// Maximum login attempts per minute per IP
+    #[serde(default = "default_login_rpm")]
+    pub login_attempts_per_minute: u32,
+
+    /// Maximum new WebSocket connections per minute per IP
+    #[serde(default = "default_ws_rpm")]
+    pub ws_connections_per_minute: u32,
+}
+
 // ── Default value helpers ──────────────────────────────────────
 
 fn default_host() -> String {
@@ -218,6 +238,15 @@ fn default_log_level() -> String {
 fn default_cors_origins() -> Vec<String> {
     vec!["*".into()]
 }
+fn default_api_rpm() -> u32 {
+    100
+}
+fn default_login_rpm() -> u32 {
+    10
+}
+fn default_ws_rpm() -> u32 {
+    20
+}
 
 // ── Trait implementations ──────────────────────────────────────
 
@@ -230,6 +259,7 @@ impl Default for AppConfig {
             admin: AdminConfig::default(),
             logging: LoggingConfig::default(),
             cors: CorsConfig::default(),
+            rate_limit: RateLimitConfig::default(),
         }
     }
 }
@@ -308,6 +338,16 @@ impl Default for CorsConfig {
     fn default() -> Self {
         Self {
             allowed_origins: default_cors_origins(),
+        }
+    }
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            api_requests_per_minute: default_api_rpm(),
+            login_attempts_per_minute: default_login_rpm(),
+            ws_connections_per_minute: default_ws_rpm(),
         }
     }
 }

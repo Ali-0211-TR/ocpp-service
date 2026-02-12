@@ -13,6 +13,9 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use crate::config::AppConfig;
 use tower_http::trace::TraceLayer;
+use tower_governor::governor::GovernorConfigBuilder;
+use tower_governor::GovernorLayer;
+use tracing::info;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
@@ -392,10 +395,38 @@ pub fn create_api_router(
     // CORS configuration
     let cors = build_cors_layer(&app_cfg.cors);
 
-    // Auth routes (public)
+    // Rate limiting configuration
+    let api_rpm = app_cfg.rate_limit.api_requests_per_minute.max(1);
+    let api_replenish = (60.0 / api_rpm as f64) as u64;
+    let api_governor_conf = GovernorConfigBuilder::default()
+        .per_second(api_replenish.max(1))
+        .burst_size(api_rpm)
+        .use_headers()
+        .finish()
+        .expect("Failed to build API rate limiter config");
+    info!(
+        "🛡️  Rate limit (API): {} req/min per IP",
+        api_rpm
+    );
+
+    let login_rpm = app_cfg.rate_limit.login_attempts_per_minute.max(1);
+    let login_replenish = (60.0 / login_rpm as f64) as u64;
+    let login_governor_conf = GovernorConfigBuilder::default()
+        .per_second(login_replenish.max(1))
+        .burst_size(login_rpm)
+        .use_headers()
+        .finish()
+        .expect("Failed to build login rate limiter config");
+    info!(
+        "🛡️  Rate limit (login): {} req/min per IP",
+        login_rpm
+    );
+
+    // Auth routes (public) — stricter rate limit on login
     let auth_routes = Router::new()
         .route("/login", post(auth::login))
         .route("/register", post(auth::register))
+        .layer(GovernorLayer::new(login_governor_conf))
         .with_state(auth_state.clone());
 
     // Auth routes (protected)
@@ -555,6 +586,7 @@ pub fn create_api_router(
         // Notifications WebSocket
         .nest("/api/v1/notifications", notification_routes)
         // Middleware
+        .layer(GovernorLayer::new(api_governor_conf))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
 }

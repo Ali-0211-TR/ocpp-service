@@ -141,6 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         command_sender.clone(),
         event_bus.clone(),
         repos.clone(),
+        app_cfg.rate_limit.ws_connections_per_minute,
     )
     .with_shutdown(shutdown_signal.clone());
 
@@ -172,7 +173,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Swagger UI available at http://{}/docs/", api_addr);
 
     let api_shutdown = shutdown_signal.clone();
-    let api_server = axum::serve(listener, api_router).with_graceful_shutdown(async move {
+    let api_server = axum::serve(
+        listener,
+        api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
         api_shutdown.wait().await;
         info!("🛑 REST API server received shutdown signal");
     });
