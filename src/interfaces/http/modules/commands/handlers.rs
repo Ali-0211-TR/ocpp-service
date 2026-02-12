@@ -10,16 +10,17 @@ use axum::{
 use chrono::Utc;
 use tracing::{error, info, warn};
 
-use crate::interfaces::http::{
-    ApiResponse, ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse,
-    DataTransferRequest, DataTransferResponse, LocalListVersionResponse, RemoteStartRequest,
-    RemoteStopRequest, ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
+use super::dto::{
+    ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse, DataTransferRequest,
+    DataTransferResponse, LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest,
+    ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
 };
 use crate::application::events::{Event, SharedEventBus, TransactionStoppedEvent};
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
 use crate::application::{charging::commands, CommandSender};
 use crate::domain::{ChargingLimitType, RepositoryProvider};
+use crate::interfaces::http::common::ApiResponse;
 
 /// Command handler state
 #[derive(Clone)]

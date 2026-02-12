@@ -1,4 +1,4 @@
-//! Health check endpoint
+//! Health check handler
 
 use axum::Json;
 use serde::Serialize;

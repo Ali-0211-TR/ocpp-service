@@ -8,47 +8,17 @@ use axum::{
 use chrono::Utc;
 use sea_orm::prelude::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
-use crate::interfaces::http::ApiResponse;
+use super::dto::{ApiKeyResponse, CreateApiKeyRequest, CreatedApiKeyResponse};
 use crate::infrastructure::crypto::api_key::{generate_api_key, hash_api_key};
 use crate::infrastructure::database::entities::api_key;
+use crate::interfaces::http::common::ApiResponse;
 use crate::interfaces::http::middleware::AuthenticatedUser;
 
 /// API key handler state
 #[derive(Clone)]
 pub struct ApiKeyHandlerState {
     pub db: sea_orm::DatabaseConnection,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-#[schema(example = json!({
-    "name": "My Integration",
-    "scopes": ["charge_points:read", "transactions:read"]
-}))]
-pub struct CreateApiKeyRequest {
-    pub name: String,
-    pub scopes: Vec<String>,
-    pub expires_in_days: Option<i64>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ApiKeyResponse {
-    pub id: String,
-    pub name: String,
-    pub prefix: String,
-    pub scopes: Vec<String>,
-    pub is_active: bool,
-    pub created_at: String,
-    pub expires_at: Option<String>,
-    pub last_used_at: Option<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct CreatedApiKeyResponse {
-    pub key: String,
-    pub api_key: ApiKeyResponse,
 }
 
 #[utoipa::path(

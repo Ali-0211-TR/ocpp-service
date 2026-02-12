@@ -9,10 +9,9 @@ use axum::{
 };
 use tracing::info;
 
-use crate::interfaces::http::{
-    ApiResponse, PaginatedResponse, PaginationParams, TransactionDto, TransactionFilter,
-};
+use super::dto::{TransactionDto, TransactionFilter};
 use crate::domain::RepositoryProvider;
+use crate::interfaces::http::common::{ApiResponse, PaginatedResponse, PaginationParams};
 
 /// Transaction handler state
 #[derive(Clone)]

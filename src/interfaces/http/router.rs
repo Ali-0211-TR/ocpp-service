@@ -15,18 +15,21 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::interfaces::http::*;
+use crate::interfaces::http::common::*;
+use crate::application::identity::UserService;
 use crate::application::events::SharedEventBus;
 use crate::application::CommandSender;
 use crate::application::SharedSessionRegistry;
 use crate::application::{ChargePointService, HeartbeatMonitor};
 use crate::domain::RepositoryProvider;
 use crate::infrastructure::crypto::jwt::JwtConfig;
+use crate::infrastructure::database::repositories::user_repository::UserRepository;
 use crate::interfaces::http::middleware::{auth_middleware, AuthState};
 use crate::interfaces::ws::{create_notification_state, ws_notifications_handler};
 
-use super::handlers::{
+use super::modules::{
     api_keys, auth, charge_points, commands, health, id_tags, monitoring, tariffs, transactions,
+    users,
 };
 
 /// Unified state for all charge-point related routes (CP CRUD + commands + transactions).
@@ -113,6 +116,12 @@ impl Modify for SecurityAddon {
         auth::register,
         auth::get_current_user,
         auth::change_password,
+        // Users
+        users::list_users,
+        users::get_user,
+        users::create_user,
+        users::update_user,
+        users::delete_user,
         // API Keys
         api_keys::create_api_key,
         api_keys::list_api_keys,
@@ -172,8 +181,9 @@ impl Modify for SecurityAddon {
         schemas(
             // Common
             ApiResponse<String>,
-            PaginatedResponse<TransactionDto>,
+            PaginatedResponse<transactions::TransactionDto>,
             PaginatedResponse<id_tags::IdTagDto>,
+            PaginatedResponse<users::UserDto>,
             PaginationParams,
             // Auth
             auth::LoginRequest,
@@ -181,6 +191,10 @@ impl Modify for SecurityAddon {
             auth::RegisterRequest,
             auth::UserInfo,
             auth::ChangePasswordRequest,
+            // Users
+            users::UserDto,
+            users::CreateUserRequest,
+            users::UpdateUserRequest,
             // API Keys
             api_keys::CreateApiKeyRequest,
             api_keys::ApiKeyResponse,
@@ -190,11 +204,11 @@ impl Modify for SecurityAddon {
             id_tags::CreateIdTagRequest,
             id_tags::UpdateIdTagRequest,
             // Charge Points
-            ChargePointDto,
-            ConnectorDto,
-            ChargePointStats,
+            charge_points::ChargePointDto,
+            charge_points::ConnectorDto,
+            charge_points::ChargePointStats,
             // Transactions
-            TransactionDto,
+            transactions::TransactionDto,
             transactions::TransactionStats,
             // Monitoring
             monitoring::HeartbeatStatusDto,
@@ -206,18 +220,18 @@ impl Modify for SecurityAddon {
             tariffs::CostPreviewRequest,
             tariffs::CostBreakdownResponse,
             // Commands
-            RemoteStartRequest,
-            RemoteStopRequest,
-            CreateConnectorRequest,
-            ResetRequest,
-            UnlockConnectorRequest,
-            ChangeAvailabilityRequest,
-            TriggerMessageRequest,
-            ChangeConfigurationRequest,
-            DataTransferRequest,
-            DataTransferResponse,
-            LocalListVersionResponse,
-            CommandResponse,
+            commands::RemoteStartRequest,
+            commands::RemoteStopRequest,
+            charge_points::CreateConnectorRequest,
+            commands::ResetRequest,
+            commands::UnlockConnectorRequest,
+            commands::ChangeAvailabilityRequest,
+            commands::TriggerMessageRequest,
+            commands::ChangeConfigurationRequest,
+            commands::DataTransferRequest,
+            commands::DataTransferResponse,
+            commands::LocalListVersionResponse,
+            commands::CommandResponse,
             commands::ConfigValue,
             commands::ConfigurationResponse,
         )
@@ -226,6 +240,7 @@ impl Modify for SecurityAddon {
     tags(
         (name = "Health", description = "Server health check endpoints"),
         (name = "Authentication", description = "User authentication: login (JWT), registration, password change"),
+        (name = "Users", description = "User management (admin)"),
         (name = "API Keys", description = "API key management for programmatic access"),
         (name = "IdTags", description = "RFID card and authorization token management (OCPP IdTag)"),
         (name = "Tariffs", description = "Charging tariff management for billing"),
@@ -396,6 +411,27 @@ pub fn create_api_router(
         ))
         .with_state(api_key_state);
 
+    // User management routes (protected, admin)
+    let user_repo = UserRepository::new(db.clone());
+    let user_service = Arc::new(UserService::new(Arc::new(user_repo), jwt_config.clone()));
+    let user_state = users::UserHandlerState { user_service };
+    let user_routes = Router::new()
+        .route(
+            "/",
+            get(users::list_users).post(users::create_user),
+        )
+        .route(
+            "/{id}",
+            get(users::get_user)
+                .put(users::update_user)
+                .delete(users::delete_user),
+        )
+        .layer(middleware::from_fn_with_state(
+            middleware_state.clone(),
+            auth_middleware,
+        ))
+        .with_state(user_state);
+
     // IdTag routes (protected)
     let id_tag_state = id_tags::IdTagHandlerState { db: db.clone() };
     let id_tag_routes = Router::new()
@@ -482,6 +518,8 @@ pub fn create_api_router(
         .nest("/api/v1/auth", auth_protected_routes)
         // API Keys
         .nest("/api/v1/api-keys", api_key_routes)
+        // Users
+        .nest("/api/v1/users", user_routes)
         // IdTags
         .nest("/api/v1/id-tags", id_tag_routes)
         // Tariffs

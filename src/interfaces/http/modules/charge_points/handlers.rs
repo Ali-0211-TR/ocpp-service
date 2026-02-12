@@ -8,11 +8,10 @@ use axum::{
     Json,
 };
 
-use crate::interfaces::http::{
-    ApiResponse, ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest,
-};
+use super::dto::{ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest};
 use crate::application::SharedSessionRegistry;
 use crate::domain::RepositoryProvider;
+use crate::interfaces::http::common::ApiResponse;
 
 /// Charge-point handler state
 #[derive(Clone)]

@@ -1,4 +1,4 @@
-//! Common API DTOs
+//! Common API DTOs shared across all HTTP modules
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;

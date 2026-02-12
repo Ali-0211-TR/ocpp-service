@@ -1,13 +1,30 @@
 //! HTTP REST API interfaces
 //!
-//! - `middleware`: Authentication middleware (JWT + API key)
-//! - `handlers`: Request handlers for all resources
-//! - `router`: API router with Swagger documentation
+//! Organized by feature (aggregate-based grouping):
+//! each sub-module contains its own DTOs, handlers, and state.
+//!
+//! - `common`        — shared DTOs (ApiResponse, PaginatedResponse, etc.)
+//! - `middleware`     — authentication middleware (JWT + API key)
+//! - `router`        — API router with Swagger documentation
+//! - `auth`          — login, register, profile, password change
+//! - `users`         — user CRUD (admin management)
+//! - `api_keys`      — API key management
+//! - `charge_points` — charge point CRUD + connectors
+//! - `commands`      — OCPP remote commands
+//! - `transactions`  — charging session management
+//! - `tariffs`       — tariff management
+//! - `id_tags`       — RFID tag management
+//! - `monitoring`    — heartbeat & connection stats
+//! - `health`        — health check
 
-pub mod handlers;
+// ── Shared ──────────────────────────────────────────────────────
+pub mod common;
 pub mod middleware;
 pub mod router;
-pub mod dto;
 
+// ── Feature modules ─────────────────────────────────────────────
+pub mod modules;
+
+// ── Convenience re-exports ──────────────────────────────────────
+pub use common::*;
 pub use router::create_api_router;
-pub use dto::*;

@@ -3,13 +3,12 @@
 use axum::{extract::State, http::StatusCode, Json};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 
-use crate::interfaces::http::ApiResponse;
+use super::dto::{ChangePasswordRequest, LoginRequest, LoginResponse, RegisterRequest, UserInfo};
 use crate::infrastructure::crypto::jwt::{create_token, JwtConfig};
 use crate::infrastructure::crypto::password::{hash_password, verify_password};
 use crate::infrastructure::database::entities::user;
+use crate::interfaces::http::common::ApiResponse;
 use crate::interfaces::http::middleware::AuthenticatedUser;
 
 /// Auth state
@@ -17,35 +16,6 @@ use crate::interfaces::http::middleware::AuthenticatedUser;
 pub struct AuthHandlerState {
     pub db: sea_orm::DatabaseConnection,
     pub jwt_config: JwtConfig,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct LoginResponse {
-    pub token: String,
-    pub token_type: String,
-    pub expires_in: i64,
-    pub user: UserInfo,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct UserInfo {
-    pub id: String,
-    pub username: String,
-    pub email: String,
-    pub role: String,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct RegisterRequest {
-    pub username: String,
-    pub email: String,
-    pub password: String,
 }
 
 #[utoipa::path(
@@ -275,12 +245,6 @@ pub async fn get_current_user(
     };
 
     Ok(Json(ApiResponse::success(response)))
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct ChangePasswordRequest {
-    pub current_password: String,
-    pub new_password: String,
 }
 
 #[utoipa::path(
