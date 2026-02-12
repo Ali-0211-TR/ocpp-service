@@ -9,7 +9,9 @@ use axum::{
     Router,
 };
 use sea_orm::DatabaseConnection;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+
+use crate::config::AppConfig;
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
@@ -280,6 +282,7 @@ pub fn create_api_router(
     event_bus: SharedEventBus,
     charge_point_service: Arc<ChargePointService>,
     billing_service: Arc<BillingService>,
+    app_cfg: &AppConfig,
 ) -> Router {
     let middleware_state = AuthState {
         jwt_config: jwt_config.clone(),
@@ -387,10 +390,7 @@ pub fn create_api_router(
     let api_key_state = api_keys::ApiKeyHandlerState { db: db.clone() };
 
     // CORS configuration
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = build_cors_layer(&app_cfg.cors);
 
     // Auth routes (public)
     let auth_routes = Router::new()
@@ -557,4 +557,37 @@ pub fn create_api_router(
         // Middleware
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+}
+
+/// Build the CORS layer from application configuration.
+///
+/// - If `allowed_origins` is empty or contains `"*"` → allow any origin (dev mode).
+/// - Otherwise → restrict to the explicit list of origins.
+fn build_cors_layer(cors_cfg: &crate::config::CorsConfig) -> CorsLayer {
+    use tracing::info;
+
+    let is_any = cors_cfg.allowed_origins.is_empty()
+        || cors_cfg
+            .allowed_origins
+            .iter()
+            .any(|o| o.trim() == "*");
+
+    if is_any {
+        info!("⚠️  CORS: allowing ANY origin (dev mode). Set [cors].allowed_origins for production.");
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = cors_cfg
+            .allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        info!("🔒 CORS: allowed origins: {:?}", cors_cfg.allowed_origins);
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(origins))
+            .allow_methods(Any)
+            .allow_headers(Any)
+    }
 }

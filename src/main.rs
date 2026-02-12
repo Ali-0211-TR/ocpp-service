@@ -162,6 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_bus,
         service,
         billing_service,
+        &app_cfg,
     );
 
     // Start REST API server with graceful shutdown

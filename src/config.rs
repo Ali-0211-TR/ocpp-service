@@ -27,6 +27,10 @@ pub struct AppConfig {
     /// Logging
     #[serde(default)]
     pub logging: LoggingConfig,
+
+    /// CORS settings
+    #[serde(default)]
+    pub cors: CorsConfig,
 }
 
 /// WebSocket + REST server settings
@@ -149,6 +153,15 @@ pub struct LoggingConfig {
     pub level: String,
 }
 
+/// CORS configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CorsConfig {
+    /// List of allowed origins. Empty list or ["*"] means allow any origin.
+    /// Examples: ["https://your-frontend.com", "http://localhost:3000"]
+    #[serde(default = "default_cors_origins")]
+    pub allowed_origins: Vec<String>,
+}
+
 // ── Default value helpers ──────────────────────────────────────
 
 fn default_host() -> String {
@@ -202,6 +215,9 @@ fn default_admin_password() -> String {
 fn default_log_level() -> String {
     "info".into()
 }
+fn default_cors_origins() -> Vec<String> {
+    vec!["*".into()]
+}
 
 // ── Trait implementations ──────────────────────────────────────
 
@@ -213,6 +229,7 @@ impl Default for AppConfig {
             security: SecurityConfig::default(),
             admin: AdminConfig::default(),
             logging: LoggingConfig::default(),
+            cors: CorsConfig::default(),
         }
     }
 }
@@ -283,6 +300,14 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: default_log_level(),
+        }
+    }
+}
+
+impl Default for CorsConfig {
+    fn default() -> Self {
+        Self {
+            allowed_origins: default_cors_origins(),
         }
     }
 }
