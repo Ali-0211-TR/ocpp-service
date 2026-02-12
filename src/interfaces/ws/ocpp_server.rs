@@ -22,6 +22,7 @@ use crate::application::events::{
 use crate::application::SharedCommandSender;
 use crate::application::SharedSessionRegistry;
 use crate::config::Config;
+use crate::domain::RepositoryProvider;
 use crate::domain::OcppVersion;
 use crate::shared::shutdown::ShutdownSignal;
 
@@ -39,6 +40,7 @@ pub struct OcppServer {
     command_sender: SharedCommandSender,
     shutdown_signal: Option<ShutdownSignal>,
     event_bus: SharedEventBus,
+    repos: Arc<dyn RepositoryProvider>,
 }
 
 impl OcppServer {
@@ -52,6 +54,7 @@ impl OcppServer {
         session_registry: SharedSessionRegistry,
         command_sender: SharedCommandSender,
         event_bus: SharedEventBus,
+        repos: Arc<dyn RepositoryProvider>,
     ) -> Self {
         Self {
             config,
@@ -60,6 +63,7 @@ impl OcppServer {
             command_sender,
             shutdown_signal: None,
             event_bus,
+            repos,
         }
     }
 
@@ -137,6 +141,7 @@ impl OcppServer {
         let command_sender = self.command_sender.clone();
         let shutdown = self.shutdown_signal.clone();
         let event_bus = self.event_bus.clone();
+        let repos = self.repos.clone();
 
         tokio::spawn(async move {
             if let Err(e) = handle_connection(
@@ -147,6 +152,7 @@ impl OcppServer {
                 command_sender,
                 shutdown,
                 event_bus,
+                repos,
             )
             .await
             {
@@ -207,6 +213,7 @@ async fn handle_connection(
     command_sender: SharedCommandSender,
     shutdown: Option<ShutdownSignal>,
     event_bus: SharedEventBus,
+    repos: Arc<dyn RepositoryProvider>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("New connection from: {}", addr);
 
@@ -269,6 +276,47 @@ async fn handle_connection(
         "[{}] Connected from {} via {}",
         charge_point_id, addr, version
     );
+
+    // ── Whitelist check: verify charge_point_id exists in DB ──
+    match repos.charge_points().find_by_id(&charge_point_id).await {
+        Ok(Some(_)) => {
+            info!(
+                "[{}] Charge point found in database, connection allowed",
+                charge_point_id
+            );
+        }
+        Ok(None) => {
+            warn!(
+                "[{}] Charge point NOT found in database — rejecting connection from {}",
+                charge_point_id, addr
+            );
+            // Send close frame and drop connection
+            let (mut ws_sender, _) = ws_stream.split();
+            let close_frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy,
+                reason: "Unknown charge point ID".into(),
+            };
+            let _ = ws_sender
+                .send(Message::Close(Some(close_frame)))
+                .await;
+            return Ok(());
+        }
+        Err(e) => {
+            error!(
+                "[{}] Failed to verify charge point in database: {} — rejecting connection",
+                charge_point_id, e
+            );
+            let (mut ws_sender, _) = ws_stream.split();
+            let close_frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Error,
+                reason: "Internal server error during authentication".into(),
+            };
+            let _ = ws_sender
+                .send(Message::Close(Some(close_frame)))
+                .await;
+            return Ok(());
+        }
+    }
 
     // ── Create version-specific adapter ────────────────────
     let adapter = protocol_adapters

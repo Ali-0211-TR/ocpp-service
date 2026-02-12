@@ -140,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         session_registry.clone(),
         command_sender.clone(),
         event_bus.clone(),
+        repos.clone(),
     )
     .with_shutdown(shutdown_signal.clone());
 
