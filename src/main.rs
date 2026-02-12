@@ -160,6 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         heartbeat_monitor,
         event_bus,
         service,
+        billing_service,
     );
 
     // Start REST API server with graceful shutdown

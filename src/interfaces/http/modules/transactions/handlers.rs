@@ -7,9 +7,14 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use tracing::info;
+use chrono::Utc;
+use tracing::{info, warn};
 
 use super::dto::{TransactionDto, TransactionFilter};
+use crate::application::events::{
+    Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
+};
+use crate::application::BillingService;
 use crate::domain::RepositoryProvider;
 use crate::interfaces::http::common::{ApiResponse, PaginatedResponse, PaginationParams};
 
@@ -17,6 +22,8 @@ use crate::interfaces::http::common::{ApiResponse, PaginatedResponse, Pagination
 #[derive(Clone)]
 pub struct TransactionAppState {
     pub repos: Arc<dyn RepositoryProvider>,
+    pub billing_service: Arc<BillingService>,
+    pub event_bus: SharedEventBus,
 }
 
 #[utoipa::path(
@@ -318,6 +325,63 @@ pub async fn force_stop_transaction(
         "Transaction {} force-stopped (CP: {}, Connector: {})",
         transaction_id, tx.charge_point_id, tx.connector_id
     );
+
+    let energy_wh = tx.energy_consumed().unwrap_or(0);
+
+    // Calculate billing for the force-stopped transaction
+    let (total_cost, currency) = match state
+        .billing_service
+        .calculate_transaction_billing(transaction_id, None)
+        .await
+    {
+        Ok(billing) => {
+            info!(
+                "Billing calculated for force-stopped transaction {}: {} {}",
+                transaction_id,
+                billing.total_cost as f64 / 100.0,
+                billing.currency
+            );
+
+            state.event_bus.publish(Event::TransactionBilled(
+                TransactionBilledEvent {
+                    charge_point_id: tx.charge_point_id.clone(),
+                    transaction_id,
+                    energy_kwh: energy_wh as f64 / 1000.0,
+                    duration_minutes: billing.duration_seconds as f64 / 60.0,
+                    energy_cost: billing.energy_cost as f64 / 100.0,
+                    time_cost: billing.time_cost as f64 / 100.0,
+                    session_fee: billing.session_fee as f64 / 100.0,
+                    total_cost: billing.total_cost as f64 / 100.0,
+                    currency: billing.currency.clone(),
+                    tariff_name: None,
+                    timestamp: Utc::now(),
+                },
+            ));
+
+            (billing.total_cost as f64 / 100.0, billing.currency)
+        }
+        Err(e) => {
+            warn!(
+                "Billing failed for force-stopped transaction {}: {}",
+                transaction_id, e
+            );
+            (0.0, "UZS".to_string())
+        }
+    };
+
+    state.event_bus.publish(Event::TransactionStopped(
+        TransactionStoppedEvent {
+            charge_point_id: tx.charge_point_id.clone(),
+            transaction_id,
+            id_tag: Some(tx.id_tag.clone()),
+            meter_stop: tx.meter_start,
+            energy_consumed_kwh: energy_wh as f64 / 1000.0,
+            total_cost,
+            currency,
+            reason: Some("ForceStop".to_string()),
+            timestamp: Utc::now(),
+        },
+    ));
 
     Ok(Json(ApiResponse::success(TransactionDto::from_domain(tx))))
 }

@@ -19,7 +19,8 @@ use serde_json::Value;
 use tracing::{error, info, warn};
 
 use crate::application::events::{
-    Event, MeterValuesEvent, TransactionStartedEvent, TransactionStoppedEvent,
+    Event, MeterValuesEvent, TransactionBilledEvent, TransactionStartedEvent,
+    TransactionStoppedEvent,
 };
 use crate::application::OcppHandlerV201;
 
@@ -282,6 +283,22 @@ async fn handle_ended(
                             energy_kwh,
                             "V201: Transaction billing calculated"
                         );
+
+                        handler.event_bus.publish(Event::TransactionBilled(
+                            TransactionBilledEvent {
+                                charge_point_id: handler.charge_point_id.clone(),
+                                transaction_id: tx.id,
+                                energy_kwh,
+                                duration_minutes: billing.duration_seconds as f64 / 60.0,
+                                energy_cost: billing.energy_cost as f64 / 100.0,
+                                time_cost: billing.time_cost as f64 / 100.0,
+                                session_fee: billing.session_fee as f64 / 100.0,
+                                total_cost,
+                                currency: currency.clone(),
+                                tariff_name: None,
+                                timestamp: req.timestamp,
+                            },
+                        ));
 
                         handler.event_bus.publish(Event::TransactionStopped(
                             TransactionStoppedEvent {

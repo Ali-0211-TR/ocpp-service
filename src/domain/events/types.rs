@@ -15,6 +15,7 @@ pub enum Event {
     ConnectorStatusChanged(ConnectorStatusChangedEvent),
     TransactionStarted(TransactionStartedEvent),
     TransactionStopped(TransactionStoppedEvent),
+    TransactionBilled(TransactionBilledEvent),
     MeterValuesReceived(MeterValuesEvent),
     HeartbeatReceived(HeartbeatEvent),
     AuthorizationResult(AuthorizationEvent),
@@ -31,6 +32,7 @@ impl Event {
             Event::ConnectorStatusChanged(_) => "connector_status_changed",
             Event::TransactionStarted(_) => "transaction_started",
             Event::TransactionStopped(_) => "transaction_stopped",
+            Event::TransactionBilled(_) => "transaction_billed",
             Event::MeterValuesReceived(_) => "meter_values_received",
             Event::HeartbeatReceived(_) => "heartbeat_received",
             Event::AuthorizationResult(_) => "authorization_result",
@@ -47,6 +49,7 @@ impl Event {
             Event::ConnectorStatusChanged(e) => Some(&e.charge_point_id),
             Event::TransactionStarted(e) => Some(&e.charge_point_id),
             Event::TransactionStopped(e) => Some(&e.charge_point_id),
+            Event::TransactionBilled(e) => Some(&e.charge_point_id),
             Event::MeterValuesReceived(e) => Some(&e.charge_point_id),
             Event::HeartbeatReceived(e) => Some(&e.charge_point_id),
             Event::AuthorizationResult(e) => Some(&e.charge_point_id),
@@ -109,6 +112,21 @@ pub struct TransactionStoppedEvent {
     pub total_cost: f64,
     pub currency: String,
     pub reason: Option<String>,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionBilledEvent {
+    pub charge_point_id: String,
+    pub transaction_id: i32,
+    pub energy_kwh: f64,
+    pub duration_minutes: f64,
+    pub energy_cost: f64,
+    pub time_cost: f64,
+    pub session_fee: f64,
+    pub total_cost: f64,
+    pub currency: String,
+    pub tariff_name: Option<String>,
     pub timestamp: DateTime<Utc>,
 }
 

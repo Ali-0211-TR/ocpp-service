@@ -371,11 +371,94 @@ impl AppConfig {
                 .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
             let cfg: AppConfig = toml::from_str(&content)
                 .map_err(|e| format!("Invalid TOML in {}: {}", path.display(), e))?;
+            cfg.validate()?;
             Ok(cfg)
         } else {
             let cfg = AppConfig::default();
             cfg.save(path)?;
             Ok(cfg)
+        }
+    }
+
+    /// Validate the configuration for common mistakes.
+    pub fn validate(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+
+        // Server ports must be valid and distinct
+        if self.server.api_port == self.server.ws_port
+            && self.server.api_host == self.server.ws_host
+        {
+            errors.push(format!(
+                "API port ({}) and WebSocket port ({}) must be different when bound to the same host",
+                self.server.api_port, self.server.ws_port
+            ));
+        }
+
+        if self.server.heartbeat_interval < 10 {
+            errors.push(format!(
+                "Heartbeat interval ({}) must be at least 10 seconds",
+                self.server.heartbeat_interval
+            ));
+        }
+
+        if self.server.shutdown_timeout < 5 {
+            errors.push(format!(
+                "Shutdown timeout ({}) must be at least 5 seconds",
+                self.server.shutdown_timeout
+            ));
+        }
+
+        // Security: JWT secret must not be the default in non-dev environments
+        if self.security.jwt_secret == default_jwt_secret() {
+            // Just a warning — we log it but don't block startup
+            eprintln!(
+                "⚠️  WARNING: Using default JWT secret. Set [security].jwt_secret in config for production!"
+            );
+        }
+
+        if self.security.jwt_secret.len() < 16 {
+            errors.push(format!(
+                "JWT secret must be at least 16 characters (got {})",
+                self.security.jwt_secret.len()
+            ));
+        }
+
+        if self.security.jwt_expiration_hours < 1 || self.security.jwt_expiration_hours > 720 {
+            errors.push(format!(
+                "JWT expiration ({} hours) must be between 1 and 720",
+                self.security.jwt_expiration_hours
+            ));
+        }
+
+        // Database
+        if self.database.driver == DbType::Postgres && self.database.postgres.password.is_empty() {
+            errors.push("PostgreSQL password must not be empty".to_string());
+        }
+
+        // Admin
+        if self.admin.password.len() < 6 {
+            errors.push(format!(
+                "Admin password must be at least 6 characters (got {})",
+                self.admin.password.len()
+            ));
+        }
+
+        // Logging level
+        let valid_levels = ["error", "warn", "info", "debug", "trace"];
+        if !valid_levels.contains(&self.logging.level.to_lowercase().as_str()) {
+            errors.push(format!(
+                "Invalid log level '{}'. Valid: {:?}",
+                self.logging.level, valid_levels
+            ));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "Configuration validation failed:\n  • {}",
+                errors.join("\n  • ")
+            ))
         }
     }
 

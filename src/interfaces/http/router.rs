@@ -21,6 +21,7 @@ use crate::application::events::SharedEventBus;
 use crate::application::CommandSender;
 use crate::application::SharedSessionRegistry;
 use crate::application::{ChargePointService, HeartbeatMonitor};
+use crate::application::BillingService;
 use crate::domain::RepositoryProvider;
 use crate::infrastructure::crypto::jwt::JwtConfig;
 use crate::infrastructure::database::repositories::user_repository::UserRepository;
@@ -42,6 +43,7 @@ pub struct ChargePointUnifiedState {
     pub event_bus: SharedEventBus,
     pub auth: AuthState,
     pub charge_point_service: Arc<ChargePointService>,
+    pub billing_service: Arc<BillingService>,
 }
 
 // -- FromRef implementations so each handler keeps its own State<T> extractor --
@@ -63,6 +65,7 @@ impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
             command_sender: Arc::clone(&s.command_sender),
             event_bus: s.event_bus.clone(),
             charge_point_service: Arc::clone(&s.charge_point_service),
+            billing_service: Arc::clone(&s.billing_service),
         }
     }
 }
@@ -71,6 +74,8 @@ impl FromRef<ChargePointUnifiedState> for transactions::TransactionAppState {
     fn from_ref(s: &ChargePointUnifiedState) -> Self {
         transactions::TransactionAppState {
             repos: Arc::clone(&s.repos),
+            billing_service: Arc::clone(&s.billing_service),
+            event_bus: s.event_bus.clone(),
         }
     }
 }
@@ -179,6 +184,9 @@ impl Modify for SecurityAddon {
     ),
     components(
         schemas(
+            // Health
+            health::HealthResponse,
+            health::ComponentHealth,
             // Common
             ApiResponse<String>,
             PaginatedResponse<transactions::TransactionDto>,
@@ -271,6 +279,7 @@ pub fn create_api_router(
     heartbeat_monitor: Arc<HeartbeatMonitor>,
     event_bus: SharedEventBus,
     charge_point_service: Arc<ChargePointService>,
+    billing_service: Arc<BillingService>,
 ) -> Router {
     let middleware_state = AuthState {
         jwt_config: jwt_config.clone(),
@@ -285,6 +294,7 @@ pub fn create_api_router(
         event_bus: event_bus.clone(),
         auth: middleware_state.clone(),
         charge_point_service,
+        billing_service: billing_service.clone(),
     };
 
     // A SINGLE router for every /api/v1/charge-points/* route.
@@ -485,6 +495,8 @@ pub fn create_api_router(
         ))
         .with_state(transactions::TransactionAppState {
             repos: repos.clone(),
+            billing_service: billing_service.clone(),
+            event_bus: event_bus.clone(),
         });
 
     // Monitoring routes (protected)
@@ -505,6 +517,16 @@ pub fn create_api_router(
         .route("/ws", get(ws_notifications_handler))
         .with_state(notification_state);
 
+    // Health check route (with DB ping and session info)
+    let health_state = health::HealthState {
+        db: db.clone(),
+        session_registry,
+        started_at: Arc::new(std::time::Instant::now()),
+    };
+    let health_routes = Router::new()
+        .route("/health", get(health::health_check))
+        .with_state(health_state);
+
     let swagger_routes = SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi());
 
     // Build router
@@ -512,7 +534,7 @@ pub fn create_api_router(
         // Swagger UI
         .merge(swagger_routes)
         // Health
-        .route("/health", get(health::health_check))
+        .merge(health_routes)
         // Auth
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/auth", auth_protected_routes)

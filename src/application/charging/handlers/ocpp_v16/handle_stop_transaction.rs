@@ -7,7 +7,7 @@ use rust_ocpp::v1_6::types::{AuthorizationStatus, IdTagInfo};
 use serde_json::Value;
 use tracing::{error, info};
 
-use crate::application::events::{Event, TransactionStoppedEvent};
+use crate::application::events::{Event, TransactionBilledEvent, TransactionStoppedEvent};
 use crate::application::OcppHandlerV16;
 
 pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) -> Value {
@@ -65,6 +65,22 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
                     energy_kwh,
                     "Transaction billing calculated"
                 );
+
+                handler
+                    .event_bus
+                    .publish(Event::TransactionBilled(TransactionBilledEvent {
+                        charge_point_id: handler.charge_point_id.clone(),
+                        transaction_id,
+                        energy_kwh,
+                        duration_minutes: billing.duration_seconds as f64 / 60.0,
+                        energy_cost: billing.energy_cost as f64 / 100.0,
+                        time_cost: billing.time_cost as f64 / 100.0,
+                        session_fee: billing.session_fee as f64 / 100.0,
+                        total_cost,
+                        currency: currency.clone(),
+                        tariff_name: None,
+                        timestamp: req.timestamp,
+                    }));
 
                 handler
                     .event_bus

@@ -15,10 +15,13 @@ use super::dto::{
     DataTransferResponse, LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest,
     ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
 };
-use crate::application::events::{Event, SharedEventBus, TransactionStoppedEvent};
+use crate::application::events::{
+    Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
+};
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
 use crate::application::{charging::commands, CommandSender};
+use crate::application::BillingService;
 use crate::domain::{ChargingLimitType, RepositoryProvider};
 use crate::interfaces::http::common::ApiResponse;
 
@@ -30,6 +33,7 @@ pub struct CommandAppState {
     pub command_sender: Arc<CommandSender>,
     pub event_bus: SharedEventBus,
     pub charge_point_service: Arc<ChargePointService>,
+    pub billing_service: Arc<BillingService>,
 }
 
 #[utoipa::path(
@@ -162,6 +166,54 @@ pub async fn remote_stop(
                             );
 
                             let energy_wh = tx.energy_consumed().unwrap_or(0);
+
+                            // Calculate billing for the stopped transaction
+                            let (total_cost, currency) = match state
+                                .billing_service
+                                .calculate_transaction_billing(transaction_id, None)
+                                .await
+                            {
+                                Ok(billing) => {
+                                    info!(
+                                        "[{}] Billing calculated for transaction {}: {} {}",
+                                        charge_point_id,
+                                        transaction_id,
+                                        billing.total_cost as f64 / 100.0,
+                                        billing.currency
+                                    );
+
+                                    // Publish billing event
+                                    state.event_bus.publish(Event::TransactionBilled(
+                                        TransactionBilledEvent {
+                                            charge_point_id: charge_point_id.clone(),
+                                            transaction_id,
+                                            energy_kwh: energy_wh as f64 / 1000.0,
+                                            duration_minutes: billing.duration_seconds as f64
+                                                / 60.0,
+                                            energy_cost: billing.energy_cost as f64 / 100.0,
+                                            time_cost: billing.time_cost as f64 / 100.0,
+                                            session_fee: billing.session_fee as f64 / 100.0,
+                                            total_cost: billing.total_cost as f64 / 100.0,
+                                            currency: billing.currency.clone(),
+                                            tariff_name: None,
+                                            timestamp: Utc::now(),
+                                        },
+                                    ));
+
+                                    (
+                                        billing.total_cost as f64 / 100.0,
+                                        billing.currency,
+                                    )
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "[{}] Billing failed for transaction {}: {}",
+                                        charge_point_id, transaction_id, e
+                                    );
+                                    (0.0, "UZS".to_string())
+                                }
+                            };
+
                             state.event_bus.publish(Event::TransactionStopped(
                                 TransactionStoppedEvent {
                                     charge_point_id: charge_point_id.clone(),
@@ -169,8 +221,8 @@ pub async fn remote_stop(
                                     id_tag: Some(tx.id_tag.clone()),
                                     meter_stop,
                                     energy_consumed_kwh: energy_wh as f64 / 1000.0,
-                                    total_cost: 0.0,
-                                    currency: "UZS".to_string(),
+                                    total_cost,
+                                    currency,
                                     reason: Some("RemoteStop".to_string()),
                                     timestamp: Utc::now(),
                                 },
