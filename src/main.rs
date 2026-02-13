@@ -7,7 +7,7 @@ use std::sync::Arc;
 use sea_orm_migration::MigratorTrait;
 use tracing::{error, info, warn};
 
-use texnouz_ocpp::application::commands::create_command_sender;
+use texnouz_ocpp::application::commands::{create_command_dispatcher, create_command_sender};
 use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
 use texnouz_ocpp::application::session::SessionRegistry;
 use texnouz_ocpp::config::AppConfig;
@@ -103,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Session & Command infrastructure (shared across WS + API) ──
     let session_registry = SessionRegistry::shared();
     let command_sender = create_command_sender(session_registry.clone());
+    let command_dispatcher = create_command_dispatcher(command_sender.clone(), session_registry.clone());
 
     // ── Protocol adapters (one per supported OCPP version) ─────
     let v16_factory = Arc::new(V16AdapterFactory::new(
@@ -156,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_router = create_api_router(
         repos,
         session_registry,
-        command_sender,
+        command_dispatcher,
         db.clone(),
         jwt_config,
         heartbeat_monitor,

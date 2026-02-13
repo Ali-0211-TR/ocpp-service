@@ -1,18 +1,18 @@
-//! Remote Stop Transaction command
+//! v1.6 Remote Stop Transaction command
 
 use rust_ocpp::v1_6::messages::remote_stop_transaction::{
     RemoteStopTransactionRequest, RemoteStopTransactionResponse,
 };
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
+use crate::application::charging::commands::{CommandError, SharedCommandSender};
 
 pub async fn remote_stop_transaction(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     transaction_id: i32,
 ) -> Result<String, CommandError> {
-    info!(charge_point_id, transaction_id, "RemoteStopTransaction");
+    info!(charge_point_id, transaction_id, "v1.6 RemoteStopTransaction");
 
     let request = RemoteStopTransactionRequest { transaction_id };
     let payload = serde_json::to_value(&request)

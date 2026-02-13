@@ -1,11 +1,11 @@
-//! Change Configuration command
+//! v1.6 Change Configuration command
 
 use rust_ocpp::v1_6::messages::change_configuration::{
     ChangeConfigurationRequest, ChangeConfigurationResponse,
 };
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
+use crate::application::charging::commands::{CommandError, SharedCommandSender};
 
 pub async fn change_configuration(
     command_sender: &SharedCommandSender,
@@ -17,7 +17,7 @@ pub async fn change_configuration(
         charge_point_id,
         key = key.as_str(),
         value = value.as_str(),
-        "ChangeConfiguration"
+        "v1.6 ChangeConfiguration"
     );
 
     let request = ChangeConfigurationRequest { key, value };

@@ -1,4 +1,4 @@
-//! Change Availability command
+//! v1.6 Change Availability command
 
 use rust_ocpp::v1_6::messages::change_availability::{
     ChangeAvailabilityRequest, ChangeAvailabilityResponse,
@@ -6,13 +6,7 @@ use rust_ocpp::v1_6::messages::change_availability::{
 use rust_ocpp::v1_6::types::AvailabilityType;
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
-
-#[derive(Debug, Clone, Copy)]
-pub enum Availability {
-    Operative,
-    Inoperative,
-}
+use crate::application::charging::commands::{Availability, CommandError, SharedCommandSender};
 
 pub async fn change_availability(
     command_sender: &SharedCommandSender,
@@ -24,7 +18,7 @@ pub async fn change_availability(
         charge_point_id,
         connector_id,
         ?availability,
-        "ChangeAvailability"
+        "v1.6 ChangeAvailability"
     );
 
     let kind = match availability {

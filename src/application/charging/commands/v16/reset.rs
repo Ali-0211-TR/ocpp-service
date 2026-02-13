@@ -1,23 +1,17 @@
-//! Reset command
+//! v1.6 Reset command
 
 use rust_ocpp::v1_6::messages::reset::{ResetRequest, ResetResponse};
 use rust_ocpp::v1_6::types::ResetRequestStatus;
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
-
-#[derive(Debug, Clone, Copy)]
-pub enum ResetKind {
-    Soft,
-    Hard,
-}
+use crate::application::charging::commands::{CommandError, ResetKind, SharedCommandSender};
 
 pub async fn reset(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     reset_type: ResetKind,
 ) -> Result<String, CommandError> {
-    info!(charge_point_id, ?reset_type, "Reset");
+    info!(charge_point_id, ?reset_type, "v1.6 Reset");
 
     let kind = match reset_type {
         ResetKind::Soft => ResetRequestStatus::Soft,

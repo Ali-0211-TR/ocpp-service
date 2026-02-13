@@ -1,18 +1,18 @@
-//! Unlock Connector command
+//! v1.6 Unlock Connector command
 
 use rust_ocpp::v1_6::messages::unlock_connector::{
     UnlockConnectorRequest, UnlockConnectorResponse,
 };
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
+use crate::application::charging::commands::{CommandError, SharedCommandSender};
 
 pub async fn unlock_connector(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     connector_id: u32,
 ) -> Result<String, CommandError> {
-    info!(charge_point_id, connector_id, "UnlockConnector");
+    info!(charge_point_id, connector_id, "v1.6 UnlockConnector");
 
     let request = UnlockConnectorRequest { connector_id };
     let payload = serde_json::to_value(&request)

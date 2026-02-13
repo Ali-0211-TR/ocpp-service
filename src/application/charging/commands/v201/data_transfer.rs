@@ -1,15 +1,9 @@
-//! Data Transfer command
+//! v2.0.1 DataTransfer command
 
-use rust_ocpp::v1_6::messages::data_transfer::{DataTransferRequest, DataTransferResponse};
+use rust_ocpp::v2_0_1::messages::datatransfer::{DataTransferRequest, DataTransferResponse};
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
-
-#[derive(Debug)]
-pub struct DataTransferResult {
-    pub status: String,
-    pub data: Option<String>,
-}
+use crate::application::charging::commands::{CommandError, DataTransferResult, SharedCommandSender};
 
 pub async fn data_transfer(
     command_sender: &SharedCommandSender,
@@ -22,11 +16,11 @@ pub async fn data_transfer(
         charge_point_id,
         vendor_id = vendor_id.as_str(),
         ?message_id,
-        "DataTransfer"
+        "v2.0.1 DataTransfer"
     );
 
     let request = DataTransferRequest {
-        vendor_string: vendor_id,
+        vendor_id,
         message_id,
         data,
     };

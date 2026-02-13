@@ -1,32 +1,20 @@
-//! Get Configuration command
+//! v1.6 Get Configuration command
 
 use rust_ocpp::v1_6::messages::get_configuration::{
     GetConfigurationRequest, GetConfigurationResponse,
 };
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
-
-/// A configuration key-value pair returned by GetConfiguration
-#[derive(Debug, Clone)]
-pub struct KeyValue {
-    pub key: String,
-    pub readonly: bool,
-    pub value: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct ConfigurationResult {
-    pub configuration_key: Vec<KeyValue>,
-    pub unknown_key: Vec<String>,
-}
+use crate::application::charging::commands::{
+    CommandError, ConfigurationResult, KeyValue, SharedCommandSender,
+};
 
 pub async fn get_configuration(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
     keys: Option<Vec<String>>,
 ) -> Result<ConfigurationResult, CommandError> {
-    info!(charge_point_id, ?keys, "GetConfiguration");
+    info!(charge_point_id, ?keys, "v1.6 GetConfiguration");
 
     let request = GetConfigurationRequest { key: keys };
     let payload = serde_json::to_value(&request)

@@ -1,16 +1,26 @@
 //! Command sender for Central System to Charge Point communication
+//!
+//! ## Architecture
+//!
+//! ```text
+//! HTTP Handler ──► CommandDispatcher ──► v16::* / v201::*
+//!                        │                     │
+//!                  resolve version       build typed request
+//!                  from SessionRegistry  call CommandSender
+//!                                              │
+//!                                     ─────────┘
+//!                                    CommandSender (version-agnostic transport)
+//! ```
+//!
+//! - [`CommandSender`] — low-level transport: sends raw JSON `[2, id, action, payload]`
+//!   frames and correlates responses via `DashMap<PendingRequest>`.
+//! - [`CommandDispatcher`] — version-aware facade: resolves the charge-point's
+//!   OCPP version from [`SessionRegistry`] and delegates to `v16::*` or `v201::*`.
+//! - `v16` / `v201` — per-version modules with concrete `rust_ocpp` types.
 
-pub mod change_availability;
-pub mod change_configuration;
-pub mod clear_cache;
-pub mod data_transfer;
-pub mod get_configuration;
-pub mod get_local_list_version;
-pub mod remote_start;
-pub mod remote_stop;
-pub mod reset;
-pub mod trigger_message;
-pub mod unlock_connector;
+pub mod dispatcher;
+pub mod v16;
+pub mod v201;
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -25,17 +35,62 @@ use tracing::{info, warn};
 use super::session::SharedSessionRegistry;
 use crate::shared::ocpp_frame::OcppFrame;
 
-pub use change_availability::{change_availability, Availability};
-pub use change_configuration::change_configuration;
-pub use clear_cache::clear_cache;
-pub use data_transfer::{data_transfer, DataTransferResult};
-pub use get_configuration::{get_configuration, ConfigurationResult};
-pub use get_local_list_version::get_local_list_version;
-pub use remote_start::remote_start_transaction;
-pub use remote_stop::remote_stop_transaction;
-pub use reset::{reset, ResetKind};
-pub use trigger_message::{trigger_message, TriggerType};
-pub use unlock_connector::unlock_connector;
+// ── Common types used by both v16 and v201 implementations ─────────
+
+/// Availability state for ChangeAvailability command (version-agnostic).
+#[derive(Debug, Clone, Copy)]
+pub enum Availability {
+    Operative,
+    Inoperative,
+}
+
+/// Reset kind for Reset command (version-agnostic).
+///
+/// Maps to: v1.6 `Hard`/`Soft`, v2.0.1 `Immediate`/`OnIdle`.
+#[derive(Debug, Clone, Copy)]
+pub enum ResetKind {
+    Soft,
+    Hard,
+}
+
+/// Trigger message type (version-agnostic).
+#[derive(Debug, Clone, Copy)]
+pub enum TriggerType {
+    BootNotification,
+    DiagnosticsStatusNotification,
+    FirmwareStatusNotification,
+    Heartbeat,
+    MeterValues,
+    StatusNotification,
+}
+
+/// Result of a DataTransfer command.
+#[derive(Debug)]
+pub struct DataTransferResult {
+    pub status: String,
+    pub data: Option<String>,
+}
+
+/// A configuration key-value pair returned by GetConfiguration (v1.6).
+#[derive(Debug, Clone)]
+pub struct KeyValue {
+    pub key: String,
+    pub readonly: bool,
+    pub value: Option<String>,
+}
+
+/// GetConfiguration result (v1.6).
+#[derive(Debug)]
+pub struct ConfigurationResult {
+    pub configuration_key: Vec<KeyValue>,
+    pub unknown_key: Vec<String>,
+}
+
+// ── Re-exports ─────────────────────────────────────────────────────
+
+pub use dispatcher::{
+    create_command_dispatcher, CommandDispatcher, SharedCommandDispatcher,
+};
 
 const RESPONSE_TIMEOUT_SECS: u64 = 30;
 
@@ -51,6 +106,8 @@ pub enum CommandError {
     Timeout,
     InvalidResponse(String),
     CallError { code: String, description: String },
+    /// The command is not supported by the charge point's OCPP version.
+    UnsupportedVersion(String),
 }
 
 impl std::fmt::Display for CommandError {
@@ -63,6 +120,7 @@ impl std::fmt::Display for CommandError {
             Self::CallError { code, description } => {
                 write!(f, "CallError {}: {}", code, description)
             }
+            Self::UnsupportedVersion(msg) => write!(f, "Unsupported version: {}", msg),
         }
     }
 }

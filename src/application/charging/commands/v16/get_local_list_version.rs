@@ -1,17 +1,17 @@
-//! Get Local List Version command
+//! v1.6 Get Local List Version command
 
 use rust_ocpp::v1_6::messages::get_local_list_version::{
     GetLocalListVersionRequest, GetLocalListVersionResponse,
 };
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
+use crate::application::charging::commands::{CommandError, SharedCommandSender};
 
 pub async fn get_local_list_version(
     command_sender: &SharedCommandSender,
     charge_point_id: &str,
 ) -> Result<i32, CommandError> {
-    info!(charge_point_id, "GetLocalListVersion");
+    info!(charge_point_id, "v1.6 GetLocalListVersion");
 
     let request = GetLocalListVersionRequest {};
     let payload = serde_json::to_value(&request)

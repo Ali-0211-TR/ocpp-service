@@ -1,11 +1,11 @@
-//! Remote Start Transaction command
+//! v1.6 Remote Start Transaction command
 
 use rust_ocpp::v1_6::messages::remote_start_transaction::{
     RemoteStartTransactionRequest, RemoteStartTransactionResponse,
 };
 use tracing::info;
 
-use super::{CommandError, SharedCommandSender};
+use crate::application::charging::commands::{CommandError, SharedCommandSender};
 
 pub async fn remote_start_transaction(
     command_sender: &SharedCommandSender,
@@ -17,7 +17,7 @@ pub async fn remote_start_transaction(
         charge_point_id,
         id_tag,
         ?connector_id,
-        "RemoteStartTransaction"
+        "v1.6 RemoteStartTransaction"
     );
 
     let request = RemoteStartTransactionRequest {

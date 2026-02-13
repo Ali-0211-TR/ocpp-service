@@ -20,7 +20,9 @@ use crate::application::events::{
 };
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
-use crate::application::{charging::commands, CommandSender};
+use crate::application::{
+    Availability, ResetKind, SharedCommandDispatcher, TriggerType,
+};
 use crate::application::BillingService;
 use crate::domain::{ChargingLimitType, RepositoryProvider};
 use crate::interfaces::http::common::ApiResponse;
@@ -30,7 +32,7 @@ use crate::interfaces::http::common::ApiResponse;
 pub struct CommandAppState {
     pub repos: Arc<dyn RepositoryProvider>,
     pub session_registry: SharedSessionRegistry,
-    pub command_sender: Arc<CommandSender>,
+    pub command_dispatcher: SharedCommandDispatcher,
     pub event_bus: SharedEventBus,
     pub charge_point_service: Arc<ChargePointService>,
     pub billing_service: Arc<BillingService>,
@@ -63,13 +65,14 @@ pub async fn remote_start(
         ));
     }
 
-    match commands::remote_start_transaction(
-        &state.command_sender,
-        &charge_point_id,
-        &request.id_tag,
-        request.connector_id,
-    )
-    .await
+    match state
+        .command_dispatcher
+        .remote_start(
+            &charge_point_id,
+            &request.id_tag,
+            request.connector_id,
+        )
+        .await
     {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
@@ -137,12 +140,13 @@ pub async fn remote_stop(
         ));
     }
 
-    match commands::remote_stop_transaction(
-        &state.command_sender,
-        &charge_point_id,
-        request.transaction_id,
-    )
-    .await
+    match state
+        .command_dispatcher
+        .remote_stop(
+            &charge_point_id,
+            request.transaction_id,
+        )
+        .await
     {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
@@ -294,11 +298,15 @@ pub async fn reset_charge_point(
     }
 
     let reset_type = match request.reset_type.to_lowercase().as_str() {
-        "hard" => commands::ResetKind::Hard,
-        _ => commands::ResetKind::Soft,
+        "hard" => ResetKind::Hard,
+        _ => ResetKind::Soft,
     };
 
-    match commands::reset(&state.command_sender, &charge_point_id, reset_type).await {
+    match state
+        .command_dispatcher
+        .reset(&charge_point_id, reset_type)
+        .await
+    {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
             Ok(Json(ApiResponse::success(CommandResponse {
@@ -344,12 +352,13 @@ pub async fn unlock(
         ));
     }
 
-    match commands::unlock_connector(
-        &state.command_sender,
-        &charge_point_id,
-        request.connector_id,
-    )
-    .await
+    match state
+        .command_dispatcher
+        .unlock_connector(
+            &charge_point_id,
+            request.connector_id,
+        )
+        .await
     {
         Ok(status_str) => {
             let unlocked = status_str.contains("Unlocked");
@@ -397,17 +406,18 @@ pub async fn change_avail(
     }
 
     let availability = match request.availability_type.to_lowercase().as_str() {
-        "inoperative" => commands::Availability::Inoperative,
-        _ => commands::Availability::Operative,
+        "inoperative" => Availability::Inoperative,
+        _ => Availability::Operative,
     };
 
-    match commands::change_availability(
-        &state.command_sender,
-        &charge_point_id,
-        request.connector_id,
-        availability,
-    )
-    .await
+    match state
+        .command_dispatcher
+        .change_availability(
+            &charge_point_id,
+            request.connector_id,
+            availability,
+        )
+        .await
     {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
@@ -459,12 +469,12 @@ pub async fn trigger_msg(
     }
 
     let message_type = match request.message.to_lowercase().as_str() {
-        "bootnotification" => commands::TriggerType::BootNotification,
-        "diagnosticsstatusnotification" => commands::TriggerType::DiagnosticsStatusNotification,
-        "firmwarestatusnotification" => commands::TriggerType::FirmwareStatusNotification,
-        "heartbeat" => commands::TriggerType::Heartbeat,
-        "metervalues" => commands::TriggerType::MeterValues,
-        "statusnotification" => commands::TriggerType::StatusNotification,
+        "bootnotification" => TriggerType::BootNotification,
+        "diagnosticsstatusnotification" => TriggerType::DiagnosticsStatusNotification,
+        "firmwarestatusnotification" => TriggerType::FirmwareStatusNotification,
+        "heartbeat" => TriggerType::Heartbeat,
+        "metervalues" => TriggerType::MeterValues,
+        "statusnotification" => TriggerType::StatusNotification,
         _ => {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -476,13 +486,14 @@ pub async fn trigger_msg(
         }
     };
 
-    match commands::trigger_message(
-        &state.command_sender,
-        &charge_point_id,
-        message_type,
-        request.connector_id,
-    )
-    .await
+    match state
+        .command_dispatcher
+        .trigger_message(
+            &charge_point_id,
+            message_type,
+            request.connector_id,
+        )
+        .await
     {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
@@ -562,7 +573,11 @@ pub async fn get_config(
         .keys
         .map(|k| k.split(',').map(|s| s.trim().to_string()).collect());
 
-    match commands::get_configuration(&state.command_sender, &charge_point_id, keys).await {
+    match state
+        .command_dispatcher
+        .get_configuration(&charge_point_id, keys)
+        .await
+    {
         Ok(result) => {
             let config_values: Vec<ConfigValue> = result
                 .configuration_key
@@ -613,13 +628,14 @@ pub async fn change_config(
         ));
     }
 
-    match commands::change_configuration(
-        &state.command_sender,
-        &charge_point_id,
-        request.key.clone(),
-        request.value.clone(),
-    )
-    .await
+    match state
+        .command_dispatcher
+        .change_configuration(
+            &charge_point_id,
+            request.key.clone(),
+            request.value.clone(),
+        )
+        .await
     {
         Ok(status_str) => Ok(Json(ApiResponse::success(CommandResponse {
             status: status_str,
@@ -660,7 +676,11 @@ pub async fn get_local_list_ver(
         ));
     }
 
-    match commands::get_local_list_version(&state.command_sender, &charge_point_id).await {
+    match state
+        .command_dispatcher
+        .get_local_list_version(&charge_point_id)
+        .await
+    {
         Ok(version) => Ok(Json(ApiResponse::success(LocalListVersionResponse {
             list_version: version,
         }))),
@@ -696,7 +716,11 @@ pub async fn clear_auth_cache(
         ));
     }
 
-    match commands::clear_cache(&state.command_sender, &charge_point_id).await {
+    match state
+        .command_dispatcher
+        .clear_cache(&charge_point_id)
+        .await
+    {
         Ok(status_str) => Ok(Json(ApiResponse::success(CommandResponse {
             status: status_str,
             message: Some("Authorization cache cleared".to_string()),
@@ -738,14 +762,15 @@ pub async fn data_transfer_handler(
         ));
     }
 
-    match commands::data_transfer(
-        &state.command_sender,
-        &charge_point_id,
-        request.vendor_id,
-        request.message_id,
-        request.data,
-    )
-    .await
+    match state
+        .command_dispatcher
+        .data_transfer(
+            &charge_point_id,
+            request.vendor_id,
+            request.message_id,
+            request.data,
+        )
+        .await
     {
         Ok(result) => Ok(Json(ApiResponse::success(DataTransferResponse {
             status: result.status,

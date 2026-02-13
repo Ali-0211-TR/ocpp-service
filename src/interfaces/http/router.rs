@@ -23,7 +23,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::interfaces::http::common::*;
 use crate::application::identity::UserService;
 use crate::application::events::SharedEventBus;
-use crate::application::CommandSender;
+use crate::application::SharedCommandDispatcher;
 use crate::application::SharedSessionRegistry;
 use crate::application::{ChargePointService, HeartbeatMonitor};
 use crate::application::BillingService;
@@ -44,7 +44,7 @@ use super::modules::{
 pub struct ChargePointUnifiedState {
     pub repos: Arc<dyn RepositoryProvider>,
     pub session_registry: SharedSessionRegistry,
-    pub command_sender: Arc<CommandSender>,
+    pub command_dispatcher: SharedCommandDispatcher,
     pub event_bus: SharedEventBus,
     pub auth: AuthState,
     pub charge_point_service: Arc<ChargePointService>,
@@ -67,7 +67,7 @@ impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
         commands::CommandAppState {
             repos: Arc::clone(&s.repos),
             session_registry: s.session_registry.clone(),
-            command_sender: Arc::clone(&s.command_sender),
+            command_dispatcher: Arc::clone(&s.command_dispatcher),
             event_bus: s.event_bus.clone(),
             charge_point_service: Arc::clone(&s.charge_point_service),
             billing_service: Arc::clone(&s.billing_service),
@@ -278,7 +278,7 @@ pub struct ApiDoc;
 pub fn create_api_router(
     repos: Arc<dyn RepositoryProvider>,
     session_registry: SharedSessionRegistry,
-    command_sender: Arc<CommandSender>,
+    command_dispatcher: SharedCommandDispatcher,
     db: DatabaseConnection,
     jwt_config: JwtConfig,
     heartbeat_monitor: Arc<HeartbeatMonitor>,
@@ -296,7 +296,7 @@ pub fn create_api_router(
     let cp_unified = ChargePointUnifiedState {
         repos: repos.clone(),
         session_registry: session_registry.clone(),
-        command_sender,
+        command_dispatcher,
         event_bus: event_bus.clone(),
         auth: middleware_state.clone(),
         charge_point_service,
