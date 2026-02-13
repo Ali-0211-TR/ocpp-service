@@ -176,6 +176,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     heartbeat_monitor.start(shutdown_signal.clone());
 
+    // Start Reservation Expiry Task
+    texnouz_ocpp::application::charging::services::start_reservation_expiry_task(
+        repos.clone(),
+        shutdown_signal.clone(),
+        60, // check every 60 seconds
+    );
+
     // Create REST API router
     let api_router = create_api_router(
         repos,

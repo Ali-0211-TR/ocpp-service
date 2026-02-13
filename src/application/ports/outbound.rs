@@ -225,4 +225,26 @@ pub trait OcppOutboundPort: Send + Sync {
         update_type: &str,
         entries: Option<Vec<LocalAuthEntry>>,
     ) -> Result<String, CommandError>;
+
+    // ── Reservations (v1.6 + v2.0.1) ──────────────────────────
+
+    /// ReserveNow — reserve a connector/EVSE for an ID tag.
+    ///
+    /// `connector_id` = 0 means "any connector" (v1.6) or no `evse_id` (v2.0.1).
+    async fn reserve_now(
+        &self,
+        charge_point_id: &str,
+        reservation_id: i32,
+        connector_id: i32,
+        id_tag: &str,
+        parent_id_tag: Option<&str>,
+        expiry_date: chrono::DateTime<chrono::Utc>,
+    ) -> Result<String, CommandError>;
+
+    /// CancelReservation — cancel an existing reservation.
+    async fn cancel_reservation(
+        &self,
+        charge_point_id: &str,
+        reservation_id: i32,
+    ) -> Result<String, CommandError>;
 }

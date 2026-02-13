@@ -657,6 +657,87 @@ impl CommandDispatcher {
         record_command_latency("get_composite_schedule", start);
         result
     }
+
+    // ─── ReserveNow ────────────────────────────────────────────────────
+
+    pub async fn reserve_now(
+        &self,
+        charge_point_id: &str,
+        reservation_id: i32,
+        connector_id: i32,
+        id_tag: &str,
+        parent_id_tag: Option<&str>,
+        expiry_date: chrono::DateTime<chrono::Utc>,
+    ) -> Result<String, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching ReserveNow");
+
+        let result = match version {
+            OcppVersion::V16 => {
+                v16::reserve_now::reserve_now(
+                    &self.command_sender,
+                    charge_point_id,
+                    reservation_id,
+                    connector_id,
+                    id_tag,
+                    parent_id_tag,
+                    expiry_date,
+                )
+                .await
+            }
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::reserve_now::reserve_now(
+                    &self.command_sender,
+                    charge_point_id,
+                    reservation_id,
+                    if connector_id > 0 {
+                        Some(connector_id)
+                    } else {
+                        None
+                    },
+                    id_tag,
+                    expiry_date,
+                )
+                .await
+            }
+        };
+        record_command_latency("reserve_now", start);
+        result
+    }
+
+    // ─── CancelReservation ─────────────────────────────────────────────
+
+    pub async fn cancel_reservation(
+        &self,
+        charge_point_id: &str,
+        reservation_id: i32,
+    ) -> Result<String, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching CancelReservation");
+
+        let result = match version {
+            OcppVersion::V16 => {
+                v16::cancel_reservation::cancel_reservation(
+                    &self.command_sender,
+                    charge_point_id,
+                    reservation_id,
+                )
+                .await
+            }
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::cancel_reservation::cancel_reservation(
+                    &self.command_sender,
+                    charge_point_id,
+                    reservation_id,
+                )
+                .await
+            }
+        };
+        record_command_latency("cancel_reservation", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -825,6 +906,36 @@ impl OcppOutboundPort for CommandDispatcher {
         entries: Option<Vec<LocalAuthEntry>>,
     ) -> Result<String, CommandError> {
         CommandDispatcher::send_local_list(self, charge_point_id, list_version, update_type, entries)
+            .await
+    }
+
+    async fn reserve_now(
+        &self,
+        charge_point_id: &str,
+        reservation_id: i32,
+        connector_id: i32,
+        id_tag: &str,
+        parent_id_tag: Option<&str>,
+        expiry_date: chrono::DateTime<chrono::Utc>,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::reserve_now(
+            self,
+            charge_point_id,
+            reservation_id,
+            connector_id,
+            id_tag,
+            parent_id_tag,
+            expiry_date,
+        )
+        .await
+    }
+
+    async fn cancel_reservation(
+        &self,
+        charge_point_id: &str,
+        reservation_id: i32,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::cancel_reservation(self, charge_point_id, reservation_id)
             .await
     }
 }

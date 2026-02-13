@@ -7,6 +7,7 @@
 pub mod charge_point;
 pub mod id_tag;
 pub mod ocpp;
+pub mod reservation;
 pub mod tariff;
 pub mod transaction;
 pub mod user;
@@ -40,6 +41,9 @@ pub use tariff::{
 
 // IdTag aggregate
 pub use id_tag::{IdTag, IdTagRepository, IdTagStatus};
+
+// Reservation aggregate
+pub use reservation::{Reservation, ReservationRepository, ReservationStatus};
 
 // OCPP shared types
 pub use ocpp::{ApiKey, OcppVersion};

@@ -35,8 +35,8 @@ use crate::interfaces::ws::{create_notification_state, ws_notifications_handler}
 use metrics_exporter_prometheus::PrometheusHandle;
 
 use super::modules::{
-    api_keys, auth, charge_points, commands, health, id_tags, metrics, monitoring, tariffs,
-    transactions, users,
+    api_keys, auth, charge_points, commands, health, id_tags, metrics, monitoring, reservations,
+    tariffs, transactions, users,
 };
 
 /// Unified state for all charge-point related routes (CP CRUD + commands + transactions).
@@ -82,6 +82,16 @@ impl FromRef<ChargePointUnifiedState> for transactions::TransactionAppState {
             repos: Arc::clone(&s.repos),
             billing_service: Arc::clone(&s.billing_service),
             event_bus: s.event_bus.clone(),
+        }
+    }
+}
+
+impl FromRef<ChargePointUnifiedState> for reservations::ReservationAppState {
+    fn from_ref(s: &ChargePointUnifiedState) -> Self {
+        reservations::ReservationAppState {
+            repos: Arc::clone(&s.repos),
+            session_registry: s.session_registry.clone(),
+            command_dispatcher: Arc::clone(&s.command_dispatcher),
         }
     }
 }
@@ -194,6 +204,11 @@ impl Modify for SecurityAddon {
         transactions::get_active_transactions,
         transactions::get_transaction_stats,
         transactions::force_stop_transaction,
+        // Reservations
+        reservations::create_reservation,
+        reservations::cancel_reservation,
+        reservations::list_reservations,
+        reservations::get_reservation,
     ),
     components(
         schemas(
@@ -264,6 +279,11 @@ impl Modify for SecurityAddon {
             commands::ClearChargingProfileRequest,
             commands::GetCompositeScheduleRequest,
             commands::GetCompositeScheduleResponse,
+            // Reservations
+            reservations::CreateReservationRequest,
+            reservations::CreateReservationResponse,
+            reservations::CancelReservationResponse,
+            reservations::ReservationDto,
         )
     ),
     modifiers(&SecurityAddon),
@@ -279,6 +299,7 @@ impl Modify for SecurityAddon {
         (name = "Monitoring", description = "Real-time monitoring: heartbeat statuses, connection stats"),
         (name = "Commands", description = "OCPP 1.6 remote commands to charge points via WebSocket"),
         (name = "Transactions", description = "Charging session (transaction) management"),
+        (name = "Reservations", description = "Connector/EVSE reservation management (ReserveNow / CancelReservation)"),
         (name = "WebSocket Notifications", description = "Real-time event notifications via WebSocket"),
     ),
     info(
@@ -314,7 +335,7 @@ pub fn create_api_router(
     let cp_unified = ChargePointUnifiedState {
         repos: repos.clone(),
         session_registry: session_registry.clone(),
-        command_dispatcher,
+        command_dispatcher: command_dispatcher.clone(),
         event_bus: event_bus.clone(),
         auth: middleware_state.clone(),
         charge_point_service,
@@ -579,6 +600,23 @@ pub fn create_api_router(
             event_bus: event_bus.clone(),
         });
 
+    // Reservation routes (protected)
+    let reservation_routes = Router::new()
+        .route("/", get(reservations::list_reservations).post(reservations::create_reservation))
+        .route(
+            "/{reservation_id}",
+            get(reservations::get_reservation).delete(reservations::cancel_reservation),
+        )
+        .layer(middleware::from_fn_with_state(
+            middleware_state.clone(),
+            auth_middleware,
+        ))
+        .with_state(reservations::ReservationAppState {
+            repos: repos.clone(),
+            session_registry: session_registry.clone(),
+            command_dispatcher: command_dispatcher.clone(),
+        });
+
     // Monitoring routes (protected)
     let monitoring_state = monitoring::MonitoringState { heartbeat_monitor };
     let monitoring_routes = Router::new()
@@ -640,6 +678,8 @@ pub fn create_api_router(
         .nest("/api/v1/charge-points", charge_point_routes)
         // Transactions (standalone)
         .nest("/api/v1/transactions", tx_routes)
+        // Reservations
+        .nest("/api/v1/reservations", reservation_routes)
         // Monitoring
         .nest("/api/v1/monitoring", monitoring_routes)
         // Notifications WebSocket

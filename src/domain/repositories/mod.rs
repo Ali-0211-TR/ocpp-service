@@ -7,6 +7,7 @@
 
 use super::charge_point::ChargePointRepository;
 use super::id_tag::IdTagRepository;
+use super::reservation::ReservationRepository;
 use super::tariff::{BillingRepository, TariffRepository};
 use super::transaction::TransactionRepository;
 use crate::shared::errors::DomainError;
@@ -33,6 +34,7 @@ pub trait RepositoryProvider: Send + Sync {
     fn id_tags(&self) -> &dyn IdTagRepository;
     fn tariffs(&self) -> &dyn TariffRepository;
     fn billing(&self) -> &dyn BillingRepository;
+    fn reservations(&self) -> &dyn ReservationRepository;
 }
 
 // ── Legacy Storage trait removed ────────────────────────────────

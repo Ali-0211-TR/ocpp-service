@@ -5,11 +5,13 @@ use sea_orm::DatabaseConnection;
 use crate::domain::charge_point::ChargePointRepository;
 use crate::domain::id_tag::IdTagRepository;
 use crate::domain::repositories::RepositoryProvider;
+use crate::domain::reservation::ReservationRepository;
 use crate::domain::tariff::{BillingRepository, TariffRepository};
 use crate::domain::transaction::TransactionRepository;
 
 use super::charge_point_repository::SeaOrmChargePointRepository;
 use super::id_tag_repository::SeaOrmIdTagRepository;
+use super::reservation_repository::SeaOrmReservationRepository;
 use super::tariff_repository::{SeaOrmBillingRepository, SeaOrmTariffRepository};
 use super::transaction_repository::SeaOrmTransactionRepository;
 
@@ -28,6 +30,7 @@ pub struct SeaOrmRepositoryProvider {
     id_tags: SeaOrmIdTagRepository,
     tariffs: SeaOrmTariffRepository,
     billing: SeaOrmBillingRepository,
+    reservations: SeaOrmReservationRepository,
 }
 
 impl SeaOrmRepositoryProvider {
@@ -37,7 +40,8 @@ impl SeaOrmRepositoryProvider {
             transactions: SeaOrmTransactionRepository::new(db.clone()),
             id_tags: SeaOrmIdTagRepository::new(db.clone()),
             tariffs: SeaOrmTariffRepository::new(db.clone()),
-            billing: SeaOrmBillingRepository::new(db),
+            billing: SeaOrmBillingRepository::new(db.clone()),
+            reservations: SeaOrmReservationRepository::new(db),
         }
     }
 }
@@ -61,5 +65,9 @@ impl RepositoryProvider for SeaOrmRepositoryProvider {
 
     fn billing(&self) -> &dyn BillingRepository {
         &self.billing
+    }
+
+    fn reservations(&self) -> &dyn ReservationRepository {
+        &self.reservations
     }
 }
