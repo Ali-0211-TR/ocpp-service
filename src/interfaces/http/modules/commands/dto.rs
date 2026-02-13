@@ -280,3 +280,59 @@ pub struct GetCompositeScheduleResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule_start: Option<String>,
 }
+
+// ─── Firmware Management ───────────────────────────────────────────────────
+
+/// UpdateFirmware request body.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct UpdateFirmwareRequest {
+    /// URI of the firmware image.
+    #[validate(length(min = 1, message = "location is required"))]
+    pub location: String,
+    /// Date/time at which the charge point should retrieve the firmware (ISO 8601).
+    #[validate(length(min = 1, message = "retrieve_date is required"))]
+    pub retrieve_date: String,
+    /// Number of retries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retries: Option<i32>,
+    /// Interval between retries in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_interval: Option<i32>,
+}
+
+/// UpdateFirmware response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UpdateFirmwareResponse {
+    pub status: String,
+}
+
+/// GetDiagnostics / GetLog request body.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct GetDiagnosticsRequest {
+    /// URI where the charge point should upload diagnostics.
+    #[validate(length(min = 1, message = "location is required"))]
+    pub location: String,
+    /// Number of retries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retries: Option<i32>,
+    /// Interval between retries in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_interval: Option<i32>,
+    /// Oldest timestamp for the requested log (ISO 8601).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<String>,
+    /// Latest timestamp for the requested log (ISO 8601).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_time: Option<String>,
+    /// Log type (v2.0.1 only): "DiagnosticsLog" or "SecurityLog".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_type: Option<String>,
+}
+
+/// GetDiagnostics / GetLog response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GetDiagnosticsResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+}

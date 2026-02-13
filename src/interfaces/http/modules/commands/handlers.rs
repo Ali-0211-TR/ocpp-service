@@ -13,10 +13,12 @@ use tracing::{error, info, warn};
 use super::dto::{
     ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
     CommandResponse, DataTransferRequest, DataTransferResponse, GetCompositeScheduleRequest,
-    GetCompositeScheduleResponse, GetVariablesRequest, GetVariablesResponse,
+    GetCompositeScheduleResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
+    GetVariablesRequest, GetVariablesResponse,
     LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest, ResetRequest,
     SendLocalListRequest, SendLocalListResponse, SetChargingProfileRequest, SetVariablesRequest,
-    SetVariablesResponse, TriggerMessageRequest, UnlockConnectorRequest, VariableResultDto,
+    SetVariablesResponse, TriggerMessageRequest, UnlockConnectorRequest,
+    UpdateFirmwareRequest, UpdateFirmwareResponse, VariableResultDto,
     SetVariableStatusDto,
 };
 use crate::application::events::{
@@ -1153,6 +1155,152 @@ pub async fn set_charging_profile(
                 },
             })))
         }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+// ─── Firmware Management ───────────────────────────────────────────────────
+
+/// Instruct a charge point to download and install firmware.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/firmware/update",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = UpdateFirmwareRequest,
+    responses(
+        (status = 200, description = "Firmware update accepted", body = ApiResponse<UpdateFirmwareResponse>),
+    )
+)]
+pub async fn update_firmware(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<UpdateFirmwareRequest>,
+) -> Result<
+    Json<ApiResponse<UpdateFirmwareResponse>>,
+    (StatusCode, Json<ApiResponse<UpdateFirmwareResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let retrieve_date = match chrono::DateTime::parse_from_rfc3339(&request.retrieve_date) {
+        Ok(dt) => dt.with_timezone(&chrono::Utc),
+        Err(e) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(format!(
+                    "Invalid retrieve_date: {}",
+                    e
+                ))),
+            ));
+        }
+    };
+
+    match state
+        .command_dispatcher
+        .update_firmware(
+            &charge_point_id,
+            &request.location,
+            retrieve_date,
+            request.retries,
+            request.retry_interval,
+        )
+        .await
+    {
+        Ok(status) => Ok(Json(ApiResponse::success(UpdateFirmwareResponse {
+            status,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Request diagnostics or log upload from a charge point.
+///
+/// v1.6: sends GetDiagnostics. v2.0.1: sends GetLog.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/diagnostics",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = GetDiagnosticsRequest,
+    responses(
+        (status = 200, description = "Diagnostics request accepted", body = ApiResponse<GetDiagnosticsResponse>),
+    )
+)]
+pub async fn get_diagnostics(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<GetDiagnosticsRequest>,
+) -> Result<
+    Json<ApiResponse<GetDiagnosticsResponse>>,
+    (StatusCode, Json<ApiResponse<GetDiagnosticsResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let start_time = match &request.start_time {
+        Some(s) => match chrono::DateTime::parse_from_rfc3339(s) {
+            Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse::error(format!("Invalid start_time: {}", e))),
+                ));
+            }
+        },
+        None => None,
+    };
+
+    let stop_time = match &request.stop_time {
+        Some(s) => match chrono::DateTime::parse_from_rfc3339(s) {
+            Ok(dt) => Some(dt.with_timezone(&chrono::Utc)),
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiResponse::error(format!("Invalid stop_time: {}", e))),
+                ));
+            }
+        },
+        None => None,
+    };
+
+    match state
+        .command_dispatcher
+        .get_diagnostics(
+            &charge_point_id,
+            &request.location,
+            request.retries,
+            request.retry_interval,
+            start_time,
+            stop_time,
+            request.log_type.as_deref(),
+        )
+        .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(GetDiagnosticsResponse {
+            status: result.status,
+            filename: result.filename,
+        }))),
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),

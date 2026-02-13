@@ -197,6 +197,9 @@ impl Modify for SecurityAddon {
         commands::clear_charging_profile,
         commands::set_charging_profile,
         commands::get_composite_schedule,
+        // Firmware Management
+        commands::update_firmware,
+        commands::get_diagnostics,
         // Transactions
         transactions::list_all_transactions,
         transactions::list_transactions_for_charge_point,
@@ -279,6 +282,10 @@ impl Modify for SecurityAddon {
             commands::ClearChargingProfileRequest,
             commands::GetCompositeScheduleRequest,
             commands::GetCompositeScheduleResponse,
+            commands::UpdateFirmwareRequest,
+            commands::UpdateFirmwareResponse,
+            commands::GetDiagnosticsRequest,
+            commands::GetDiagnosticsResponse,
             // Reservations
             reservations::CreateReservationRequest,
             reservations::CreateReservationResponse,
@@ -445,6 +452,15 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/transactions/stats",
             get(transactions::get_transaction_stats),
+        )
+        // --- Firmware Management ---
+        .route(
+            "/{charge_point_id}/firmware/update",
+            post(commands::update_firmware),
+        )
+        .route(
+            "/{charge_point_id}/diagnostics",
+            post(commands::get_diagnostics),
         )
         // auth middleware + unified state
         .layer(middleware::from_fn_with_state(

@@ -19,8 +19,16 @@ pub use super::{
     LocalAuthEntry, ResetKind, TriggerType,
 };
 pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
+pub use v201::get_log::GetLogResult;
 pub use v201::get_variables::GetVariablesResult;
 pub use v201::set_variables::SetVariablesResult;
+
+/// Unified result for GetDiagnostics (v1.6) / GetLog (v2.0.1).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GetDiagnosticsResult {
+    pub status: String,
+    pub filename: Option<String>,
+}
 
 /// Record command dispatch latency to Prometheus.
 fn record_command_latency(action: &'static str, start: std::time::Instant) {
@@ -738,6 +746,118 @@ impl CommandDispatcher {
         record_command_latency("cancel_reservation", start);
         result
     }
+
+    // ─── UpdateFirmware ────────────────────────────────────────────────
+
+    pub async fn update_firmware(
+        &self,
+        charge_point_id: &str,
+        location: &str,
+        retrieve_date: chrono::DateTime<chrono::Utc>,
+        retries: Option<i32>,
+        retry_interval: Option<i32>,
+    ) -> Result<String, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching UpdateFirmware");
+
+        let result = match version {
+            OcppVersion::V16 => {
+                v16::update_firmware::update_firmware(
+                    &self.command_sender,
+                    charge_point_id,
+                    location,
+                    retrieve_date,
+                    retries,
+                    retry_interval,
+                )
+                .await
+            }
+            OcppVersion::V201 | OcppVersion::V21 => {
+                // v2.0.1 needs a request_id; use a simple counter
+                let request_id = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i32;
+                v201::update_firmware::update_firmware(
+                    &self.command_sender,
+                    charge_point_id,
+                    location,
+                    retrieve_date,
+                    request_id,
+                    retries,
+                    retry_interval,
+                )
+                .await
+            }
+        };
+        record_command_latency("update_firmware", start);
+        result
+    }
+
+    // ─── GetDiagnostics / GetLog ───────────────────────────────────────
+
+    /// Get diagnostics from a v1.6 charge point, or logs from a v2.0.1 charge point.
+    ///
+    /// For v1.6, sends GetDiagnostics. For v2.0.1, sends GetLog.
+    /// `log_type` is only used for v2.0.1: `"DiagnosticsLog"` or `"SecurityLog"`.
+    pub async fn get_diagnostics(
+        &self,
+        charge_point_id: &str,
+        location: &str,
+        retries: Option<i32>,
+        retry_interval: Option<i32>,
+        start_time: Option<chrono::DateTime<chrono::Utc>>,
+        stop_time: Option<chrono::DateTime<chrono::Utc>>,
+        log_type: Option<&str>,
+    ) -> Result<GetDiagnosticsResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching GetDiagnostics/GetLog");
+
+        let result = match version {
+            OcppVersion::V16 => {
+                let filename = v16::get_diagnostics::get_diagnostics(
+                    &self.command_sender,
+                    charge_point_id,
+                    location,
+                    retries,
+                    retry_interval,
+                    start_time,
+                    stop_time,
+                )
+                .await?;
+                Ok(GetDiagnosticsResult {
+                    status: "Accepted".to_string(),
+                    filename,
+                })
+            }
+            OcppVersion::V201 | OcppVersion::V21 => {
+                let request_id = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i32;
+                let log_result = v201::get_log::get_log(
+                    &self.command_sender,
+                    charge_point_id,
+                    log_type.unwrap_or("DiagnosticsLog"),
+                    location,
+                    request_id,
+                    retries,
+                    retry_interval,
+                    start_time,
+                    stop_time,
+                )
+                .await?;
+                Ok(GetDiagnosticsResult {
+                    status: log_result.status,
+                    filename: log_result.filename,
+                })
+            }
+        };
+        record_command_latency("get_diagnostics", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -937,5 +1057,47 @@ impl OcppOutboundPort for CommandDispatcher {
     ) -> Result<String, CommandError> {
         CommandDispatcher::cancel_reservation(self, charge_point_id, reservation_id)
             .await
+    }
+
+    async fn update_firmware(
+        &self,
+        charge_point_id: &str,
+        location: &str,
+        retrieve_date: chrono::DateTime<chrono::Utc>,
+        retries: Option<i32>,
+        retry_interval: Option<i32>,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::update_firmware(
+            self,
+            charge_point_id,
+            location,
+            retrieve_date,
+            retries,
+            retry_interval,
+        )
+        .await
+    }
+
+    async fn get_diagnostics(
+        &self,
+        charge_point_id: &str,
+        location: &str,
+        retries: Option<i32>,
+        retry_interval: Option<i32>,
+        start_time: Option<chrono::DateTime<chrono::Utc>>,
+        stop_time: Option<chrono::DateTime<chrono::Utc>>,
+        log_type: Option<&str>,
+    ) -> Result<GetDiagnosticsResult, CommandError> {
+        CommandDispatcher::get_diagnostics(
+            self,
+            charge_point_id,
+            location,
+            retries,
+            retry_interval,
+            start_time,
+            stop_time,
+            log_type,
+        )
+        .await
     }
 }

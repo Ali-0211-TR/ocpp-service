@@ -11,6 +11,7 @@
 use async_trait::async_trait;
 
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
+use crate::application::charging::commands::dispatcher::GetDiagnosticsResult;
 use crate::application::charging::commands::{
     Availability, CommandError, CompositeScheduleResult, ConfigurationResult, DataTransferResult,
     LocalAuthEntry, ResetKind, TriggerType,
@@ -247,4 +248,28 @@ pub trait OcppOutboundPort: Send + Sync {
         charge_point_id: &str,
         reservation_id: i32,
     ) -> Result<String, CommandError>;
+
+    // ─── Firmware Management ───────────────────────────────────────────
+
+    /// UpdateFirmware — instruct a charge point to download and install firmware.
+    async fn update_firmware(
+        &self,
+        charge_point_id: &str,
+        location: &str,
+        retrieve_date: chrono::DateTime<chrono::Utc>,
+        retries: Option<i32>,
+        retry_interval: Option<i32>,
+    ) -> Result<String, CommandError>;
+
+    /// GetDiagnostics (v1.6) / GetLog (v2.0.1) — request diagnostic upload.
+    async fn get_diagnostics(
+        &self,
+        charge_point_id: &str,
+        location: &str,
+        retries: Option<i32>,
+        retry_interval: Option<i32>,
+        start_time: Option<chrono::DateTime<chrono::Utc>>,
+        stop_time: Option<chrono::DateTime<chrono::Utc>>,
+        log_type: Option<&str>,
+    ) -> Result<GetDiagnosticsResult, CommandError>;
 }
