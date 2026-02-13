@@ -16,6 +16,7 @@ use crate::application::charging::commands::dispatcher::GetChargingProfilesCrite
 use crate::application::charging::commands::dispatcher::GetChargingProfilesResult;
 use crate::application::charging::commands::dispatcher::GetDiagnosticsResult;
 use crate::application::charging::commands::dispatcher::GetBaseReportResult;
+use crate::application::charging::commands::dispatcher::GetTransactionStatusResult;
 use crate::application::charging::commands::dispatcher::MonitorDescriptor;
 use crate::application::charging::commands::dispatcher::SetMonitoringBaseResult;
 use crate::application::charging::commands::dispatcher::SetVariableMonitoringResult;
@@ -322,4 +323,13 @@ pub trait OcppOutboundPort: Send + Sync {
         request_id: i32,
         criteria: GetChargingProfilesCriteria,
     ) -> Result<GetChargingProfilesResult, CommandError>;
+
+    // ─── Transaction Queries (v2.0.1 only) ─────────────────────
+
+    /// GetTransactionStatus — ask if a transaction is ongoing and if messages are queued.
+    async fn get_transaction_status(
+        &self,
+        charge_point_id: &str,
+        transaction_id: Option<String>,
+    ) -> Result<GetTransactionStatusResult, CommandError>;
 }

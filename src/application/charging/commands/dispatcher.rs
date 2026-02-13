@@ -23,6 +23,7 @@ pub use v201::clear_variable_monitoring::ClearVariableMonitoringResult;
 pub use v201::get_charging_profiles::{GetChargingProfilesCriteria, GetChargingProfilesResult};
 pub use v201::get_log::GetLogResult;
 pub use v201::get_base_report::GetBaseReportResult;
+pub use v201::get_transaction_status::GetTransactionStatusResult;
 pub use v201::get_variables::GetVariablesResult;
 pub use v201::set_monitoring_base::SetMonitoringBaseResult;
 pub use v201::set_variable_monitoring::{MonitorDescriptor, SetVariableMonitoringResult};
@@ -1016,6 +1017,38 @@ impl CommandDispatcher {
         record_command_latency("get_charging_profiles", start);
         result
     }
+
+    // ─── GetTransactionStatus (v2.0.1 only) ───────────────────────────
+
+    /// GetTransactionStatus — ask whether a transaction is ongoing and
+    /// whether the station has queued messages for it.
+    ///
+    /// v1.6 does not support this action; returns `UnsupportedVersion`.
+    pub async fn get_transaction_status(
+        &self,
+        charge_point_id: &str,
+        transaction_id: Option<String>,
+    ) -> Result<GetTransactionStatusResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching GetTransactionStatus");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "GetTransactionStatus is not supported for OCPP 1.6".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::get_transaction_status::get_transaction_status(
+                    &self.command_sender,
+                    charge_point_id,
+                    transaction_id,
+                )
+                .await
+            }
+        };
+        record_command_latency("get_transaction_status", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -1303,6 +1336,15 @@ impl OcppOutboundPort for CommandDispatcher {
         criteria: GetChargingProfilesCriteria,
     ) -> Result<GetChargingProfilesResult, CommandError> {
         CommandDispatcher::get_charging_profiles(self, charge_point_id, request_id, criteria)
+            .await
+    }
+
+    async fn get_transaction_status(
+        &self,
+        charge_point_id: &str,
+        transaction_id: Option<String>,
+    ) -> Result<GetTransactionStatusResult, CommandError> {
+        CommandDispatcher::get_transaction_status(self, charge_point_id, transaction_id)
             .await
     }
 }

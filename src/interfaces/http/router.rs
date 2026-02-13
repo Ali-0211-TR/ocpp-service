@@ -212,6 +212,7 @@ impl Modify for SecurityAddon {
         commands::set_variable_monitoring_handler,
         commands::set_monitoring_base_handler,
         commands::clear_variable_monitoring_handler,
+        commands::get_transaction_status,
         // Transactions
         transactions::list_all_transactions,
         transactions::list_transactions_for_charge_point,
@@ -314,6 +315,9 @@ impl Modify for SecurityAddon {
             commands::ClearVariableMonitoringRequest,
             commands::ClearMonitoringResultDto,
             commands::ClearVariableMonitoringResponse,
+            // Transaction Status
+            commands::GetTransactionStatusRequest,
+            commands::GetTransactionStatusResponse,
             // Device Report types
             crate::application::charging::services::device_report::DeviceReport,
             crate::application::charging::services::device_report::ReportVariable,
@@ -521,6 +525,11 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/monitoring/clear",
             post(commands::clear_variable_monitoring_handler),
+        )
+        // --- Transaction Status (v2.0.1) ---
+        .route(
+            "/{charge_point_id}/transaction-status",
+            post(commands::get_transaction_status),
         )
         // auth middleware + unified state
         .layer(middleware::from_fn_with_state(

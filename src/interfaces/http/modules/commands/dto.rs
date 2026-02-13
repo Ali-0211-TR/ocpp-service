@@ -499,3 +499,23 @@ pub struct ChargingProfileDto {
 pub struct ChargingProfileListResponse {
     pub profiles: Vec<ChargingProfileDto>,
 }
+
+// ─── Transaction Status (v2.0.1) ─────────────────────────────────────
+
+/// GetTransactionStatus request body (v2.0.1 only).
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct GetTransactionStatusRequest {
+    /// Transaction ID to query (optional — omit to query all).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+}
+
+/// GetTransactionStatus response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GetTransactionStatusResponse {
+    /// Whether the transaction is still ongoing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ongoing_indicator: Option<bool>,
+    /// Whether the station has queued messages to deliver.
+    pub messages_in_queue: bool,
+}

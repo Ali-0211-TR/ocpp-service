@@ -14,6 +14,7 @@ pub mod get_charging_profiles;
 pub mod get_composite_schedule;
 pub mod get_local_list_version;
 pub mod get_log;
+pub mod get_transaction_status;
 pub mod get_variables;
 pub mod remote_start;
 pub mod remote_stop;

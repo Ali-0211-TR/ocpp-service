@@ -18,6 +18,7 @@ use super::dto::{
     GetBaseReportResponse, GetChargingProfilesHttpRequest, GetChargingProfilesHttpResponse,
     GetCompositeScheduleRequest,
     GetCompositeScheduleResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
+    GetTransactionStatusRequest, GetTransactionStatusResponse,
     GetVariablesRequest, GetVariablesResponse,
     LocalListVersionResponse, MonitoringResultDto,
     RemoteStartRequest, RemoteStopRequest, ResetRequest,
@@ -1852,4 +1853,53 @@ pub async fn list_charging_profiles(
 #[derive(Debug, serde::Deserialize)]
 pub struct ChargingProfileQueryParams {
     pub active_only: Option<bool>,
+}
+
+// ─── Transaction Status (v2.0.1) ───────────────────────────────────────────
+
+/// Ask the charge point whether a transaction is ongoing and if messages are queued.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/transaction-status",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = GetTransactionStatusRequest,
+    responses(
+        (status = 200, description = "Transaction status", body = ApiResponse<GetTransactionStatusResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn get_transaction_status(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<GetTransactionStatusRequest>,
+) -> Result<
+    Json<ApiResponse<GetTransactionStatusResponse>>,
+    (StatusCode, Json<ApiResponse<GetTransactionStatusResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match state
+        .command_dispatcher
+        .get_transaction_status(&charge_point_id, request.transaction_id)
+        .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(GetTransactionStatusResponse {
+            ongoing_indicator: result.ongoing_indicator,
+            messages_in_queue: result.messages_in_queue,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
 }
