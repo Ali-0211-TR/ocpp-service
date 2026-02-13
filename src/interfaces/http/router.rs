@@ -164,6 +164,9 @@ impl Modify for SecurityAddon {
         charge_points::get_connector,
         charge_points::create_connector,
         charge_points::delete_connector,
+        // Password
+        charge_points::set_password,
+        charge_points::remove_password,
         // Monitoring
         monitoring::get_heartbeat_statuses,
         monitoring::get_connection_stats,
@@ -221,6 +224,8 @@ impl Modify for SecurityAddon {
             charge_points::ChargePointDto,
             charge_points::ConnectorDto,
             charge_points::ChargePointStats,
+            charge_points::SetPasswordRequest,
+            charge_points::SetPasswordResponse,
             // Transactions
             transactions::TransactionDto,
             transactions::TransactionStats,
@@ -323,6 +328,11 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/connectors/{connector_id}",
             get(charge_points::get_connector).delete(charge_points::delete_connector),
+        )
+        // --- Password management (uses State<AppState> via FromRef) ---
+        .route(
+            "/{charge_point_id}/password",
+            put(charge_points::set_password).delete(charge_points::remove_password),
         )
         // --- Commands (uses State<CommandAppState> via FromRef) ---
         .route(

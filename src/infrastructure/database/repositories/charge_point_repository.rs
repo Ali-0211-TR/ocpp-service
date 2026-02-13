@@ -112,6 +112,7 @@ fn cp_from_model(model: charge_point::Model, connectors: Vec<Connector>) -> Char
         imsi: model.imsi,
         meter_type: model.meter_type,
         meter_serial_number: model.meter_serial_number,
+        password_hash: model.password_hash,
         status: string_to_status(&model.status),
         connectors,
         registered_at: model.registered_at,
@@ -192,6 +193,7 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
             ocpp_version: Set(cp.ocpp_version.as_ref().map(ocpp_version_to_string)),
             meter_type: Set(cp.meter_type),
             meter_serial_number: Set(cp.meter_serial_number),
+            password_hash: Set(cp.password_hash),
             status: Set(status_to_string(&cp.status)),
             last_heartbeat: Set(cp.last_heartbeat),
             registered_at: Set(cp.registered_at),
@@ -260,6 +262,7 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
             ocpp_version: Set(cp.ocpp_version.as_ref().map(ocpp_version_to_string)),
             meter_type: Set(cp.meter_type),
             meter_serial_number: Set(cp.meter_serial_number),
+            password_hash: Set(cp.password_hash),
             status: Set(status_to_string(&cp.status)),
             last_heartbeat: Set(cp.last_heartbeat),
             registered_at: Set(cp.registered_at),
@@ -302,6 +305,7 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
             ocpp_version: NotSet,
             meter_type: NotSet,
             meter_serial_number: NotSet,
+            password_hash: NotSet,
             last_heartbeat: NotSet,
             registered_at: NotSet,
         };
@@ -324,6 +328,43 @@ impl ChargePointRepository for SeaOrmChargePointRepository {
                 value: id.to_string(),
             });
         }
+        Ok(())
+    }
+
+    async fn set_password_hash(&self, id: &str, hash: Option<String>) -> DomainResult<()> {
+        let existing = charge_point::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(db_err)?;
+
+        if existing.is_none() {
+            return Err(DomainError::NotFound {
+                entity: "ChargePoint",
+                field: "id",
+                value: id.to_string(),
+            });
+        }
+
+        let model = charge_point::ActiveModel {
+            id: Set(id.to_string()),
+            password_hash: Set(hash),
+            updated_at: Set(Some(Utc::now())),
+            vendor: NotSet,
+            model: NotSet,
+            serial_number: NotSet,
+            firmware_version: NotSet,
+            iccid: NotSet,
+            imsi: NotSet,
+            ocpp_version: NotSet,
+            meter_type: NotSet,
+            meter_serial_number: NotSet,
+            status: NotSet,
+            last_heartbeat: NotSet,
+            registered_at: NotSet,
+        };
+        model.update(&self.db).await.map_err(db_err)?;
+
+        info!("Charge point {} password hash updated", id);
         Ok(())
     }
 }

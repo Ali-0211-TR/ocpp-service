@@ -35,6 +35,10 @@ pub struct AppConfig {
     /// Rate limiting
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
+
+    /// WebSocket authentication for charge points
+    #[serde(default)]
+    pub ws_auth: WsAuthConfig,
 }
 
 /// WebSocket + REST server settings
@@ -214,6 +218,24 @@ pub struct DatabasePoolConfig {
     pub max_lifetime_seconds: u64,
 }
 
+/// WebSocket authentication configuration for charge point connections.
+///
+/// Controls how OCPP charge points authenticate during the WebSocket handshake.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsAuthConfig {
+    /// Authentication mode:
+    /// - `"none"` — no WS authentication (default, dev mode)
+    /// - `"basic"` — HTTP Basic Auth (OCPP Security Profile 1)
+    ///   Charge point sends `Authorization: Basic base64(charge_point_id:password)`
+    #[serde(default = "default_ws_auth_mode")]
+    pub mode: String,
+
+    /// Reject WebSocket connections from charge points not registered in the database.
+    /// When `false`, unknown charge points can connect and self-register via BootNotification.
+    #[serde(default = "default_reject_unknown")]
+    pub reject_unknown_charge_points: bool,
+}
+
 // ── Default value helpers ──────────────────────────────────────
 
 fn default_host() -> String {
@@ -297,6 +319,12 @@ fn default_pool_idle_timeout() -> u64 {
 fn default_pool_max_lifetime() -> u64 {
     1800
 }
+fn default_ws_auth_mode() -> String {
+    "none".into()
+}
+fn default_reject_unknown() -> bool {
+    true
+}
 
 // ── Trait implementations ──────────────────────────────────────
 
@@ -310,6 +338,7 @@ impl Default for AppConfig {
             logging: LoggingConfig::default(),
             cors: CorsConfig::default(),
             rate_limit: RateLimitConfig::default(),
+            ws_auth: WsAuthConfig::default(),
         }
     }
 }
@@ -412,6 +441,15 @@ impl Default for DatabasePoolConfig {
             connect_timeout_seconds: default_pool_connect_timeout(),
             idle_timeout_seconds: default_pool_idle_timeout(),
             max_lifetime_seconds: default_pool_max_lifetime(),
+        }
+    }
+}
+
+impl Default for WsAuthConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_ws_auth_mode(),
+            reject_unknown_charge_points: default_reject_unknown(),
         }
     }
 }
@@ -639,6 +677,15 @@ impl AppConfig {
             errors.push(format!(
                 "Invalid log format '{}'. Valid: {:?}",
                 self.logging.format, valid_formats
+            ));
+        }
+
+        // WebSocket auth mode
+        let valid_ws_modes = ["none", "basic"];
+        if !valid_ws_modes.contains(&self.ws_auth.mode.to_lowercase().as_str()) {
+            errors.push(format!(
+                "Invalid ws_auth.mode '{}'. Valid: {:?}",
+                self.ws_auth.mode, valid_ws_modes
             ));
         }
 

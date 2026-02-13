@@ -165,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_bus.clone(),
         repos.clone(),
         app_cfg.rate_limit.ws_connections_per_minute,
+        app_cfg.ws_auth.clone(),
     )
     .with_shutdown(shutdown_signal.clone());
 

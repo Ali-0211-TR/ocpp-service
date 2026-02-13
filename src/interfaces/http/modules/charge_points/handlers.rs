@@ -8,10 +8,13 @@ use axum::{
     Json,
 };
 
-use super::dto::{ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest};
+use super::dto::{ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest, SetPasswordRequest, SetPasswordResponse};
 use crate::application::SharedSessionRegistry;
 use crate::domain::RepositoryProvider;
 use crate::interfaces::http::common::ApiResponse;
+
+use crate::infrastructure::crypto::password::hash_password;
+use crate::interfaces::http::common::ValidatedJson;
 
 /// Charge-point handler state
 #[derive(Clone)]
@@ -408,4 +411,142 @@ pub async fn delete_connector(
     }
 
     Ok(Json(ApiResponse::success(())))
+}
+
+// ── Password management ────────────────────────────────────────
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/charge-points/{charge_point_id}/password",
+    tag = "Charge Points",
+    request_body = SetPasswordRequest,
+    params(
+        ("charge_point_id" = String, Path, description = "Charge point ID")
+    ),
+    responses(
+        (status = 200, description = "Password set successfully", body = ApiResponse<SetPasswordResponse>),
+        (status = 404, description = "Charge point not found"),
+        (status = 422, description = "Validation error")
+    ),
+    security(("bearer_auth" = []), ("api_key" = []))
+)]
+pub async fn set_password(
+    State(state): State<AppState>,
+    Path(charge_point_id): Path<String>,
+    ValidatedJson(body): ValidatedJson<SetPasswordRequest>,
+) -> Result<
+    Json<ApiResponse<SetPasswordResponse>>,
+    (StatusCode, Json<ApiResponse<SetPasswordResponse>>),
+> {
+    // Verify charge point exists
+    match state.repos.charge_points().find_by_id(&charge_point_id).await {
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse::error(format!(
+                    "Charge point '{}' not found",
+                    charge_point_id
+                ))),
+            ));
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            ));
+        }
+        Ok(Some(_)) => {}
+    }
+
+    // Hash the password
+    let password_hash = match hash_password(&body.password) {
+        Ok(hash) => hash,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(format!("Failed to hash password: {}", e))),
+            ));
+        }
+    };
+
+    // Store the hash
+    if let Err(e) = state
+        .repos
+        .charge_points()
+        .set_password_hash(&charge_point_id, Some(password_hash))
+        .await
+    {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        ));
+    }
+
+    Ok(Json(ApiResponse::success(SetPasswordResponse {
+        message: format!(
+            "Password set for charge point '{}'. Use Basic Auth for WS connections.",
+            charge_point_id
+        ),
+        has_password: true,
+    })))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/charge-points/{charge_point_id}/password",
+    tag = "Charge Points",
+    params(
+        ("charge_point_id" = String, Path, description = "Charge point ID")
+    ),
+    responses(
+        (status = 200, description = "Password removed", body = ApiResponse<SetPasswordResponse>),
+        (status = 404, description = "Charge point not found")
+    ),
+    security(("bearer_auth" = []), ("api_key" = []))
+)]
+pub async fn remove_password(
+    State(state): State<AppState>,
+    Path(charge_point_id): Path<String>,
+) -> Result<
+    Json<ApiResponse<SetPasswordResponse>>,
+    (StatusCode, Json<ApiResponse<SetPasswordResponse>>),
+> {
+    match state.repos.charge_points().find_by_id(&charge_point_id).await {
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiResponse::error(format!(
+                    "Charge point '{}' not found",
+                    charge_point_id
+                ))),
+            ));
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            ));
+        }
+        Ok(Some(_)) => {}
+    }
+
+    if let Err(e) = state
+        .repos
+        .charge_points()
+        .set_password_hash(&charge_point_id, None)
+        .await
+    {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        ));
+    }
+
+    Ok(Json(ApiResponse::success(SetPasswordResponse {
+        message: format!(
+            "Password removed for charge point '{}'. Basic Auth will be rejected.",
+            charge_point_id
+        ),
+        has_password: false,
+    })))
 }

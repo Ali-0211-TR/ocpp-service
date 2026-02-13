@@ -24,9 +24,10 @@ use crate::application::events::{
 use crate::application::SharedCommandSender;
 use crate::application::SharedSessionRegistry;
 use crate::application::session::RegisterResult;
-use crate::config::Config;
+use crate::config::{Config, WsAuthConfig};
 use crate::domain::RepositoryProvider;
 use crate::domain::OcppVersion;
+use crate::infrastructure::crypto::password::verify_password;
 use crate::shared::shutdown::ShutdownSignal;
 
 use super::negotiator::ProtocolAdapters;
@@ -46,6 +47,8 @@ pub struct OcppServer {
     repos: Arc<dyn RepositoryProvider>,
     /// Per-IP WebSocket connection rate limiter: max connections per minute
     ws_rate_limiter: Arc<WsRateLimiter>,
+    /// WebSocket authentication configuration
+    ws_auth: WsAuthConfig,
 }
 
 impl OcppServer {
@@ -61,6 +64,7 @@ impl OcppServer {
         event_bus: SharedEventBus,
         repos: Arc<dyn RepositoryProvider>,
         ws_connections_per_minute: u32,
+        ws_auth: WsAuthConfig,
     ) -> Self {
         Self {
             config,
@@ -71,6 +75,7 @@ impl OcppServer {
             event_bus,
             repos,
             ws_rate_limiter: Arc::new(WsRateLimiter::new(ws_connections_per_minute)),
+            ws_auth,
         }
     }
 
@@ -159,6 +164,7 @@ impl OcppServer {
         let shutdown = self.shutdown_signal.clone();
         let event_bus = self.event_bus.clone();
         let repos = self.repos.clone();
+        let ws_auth = self.ws_auth.clone();
 
         tokio::spawn(async move {
             if let Err(e) = handle_connection(
@@ -170,6 +176,7 @@ impl OcppServer {
                 shutdown,
                 event_bus,
                 repos,
+                ws_auth,
             )
             .await
             {
@@ -231,11 +238,13 @@ async fn handle_connection(
     shutdown: Option<ShutdownSignal>,
     event_bus: SharedEventBus,
     repos: Arc<dyn RepositoryProvider>,
+    ws_auth: WsAuthConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("New connection from: {}", addr);
 
     let mut charge_point_id: Option<String> = None;
     let mut negotiated_version: Option<OcppVersion> = None;
+    let mut auth_header: Option<String> = None;
 
     let negotiator = protocol_adapters.build_negotiator();
 
@@ -251,6 +260,13 @@ async fn handle_connection(
                 .unwrap_or("");
 
             info!("Requested subprotocols: {}", requested_protocols);
+
+            // ── Extract Authorization header for Basic Auth ─────
+            auth_header = req
+                .headers()
+                .get("Authorization")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from);
 
             // ── Version negotiation ────────────────────────
             if let Some(version) = negotiator.negotiate(requested_protocols) {
@@ -300,45 +316,26 @@ async fn handle_connection(
 
     info!("Connected from {} via {}", addr, version);
 
-    // ── Whitelist check: verify charge_point_id exists in DB ──
-    match repos.charge_points().find_by_id(&charge_point_id).await {
-        Ok(Some(_)) => {
-            info!(
-                "[{}] Charge point found in database, connection allowed",
-                charge_point_id
-            );
-        }
-        Ok(None) => {
-            warn!(
-                "[{}] Charge point NOT found in database — rejecting connection from {}",
-                charge_point_id, addr
-            );
-            // Send close frame and drop connection
-            let (mut ws_sender, _) = ws_stream.split();
-            let close_frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy,
-                reason: "Unknown charge point ID".into(),
-            };
-            let _ = ws_sender
-                .send(Message::Close(Some(close_frame)))
-                .await;
-            return Ok(());
-        }
-        Err(e) => {
-            error!(
-                "[{}] Failed to verify charge point in database: {} — rejecting connection",
-                charge_point_id, e
-            );
-            let (mut ws_sender, _) = ws_stream.split();
-            let close_frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Error,
-                reason: "Internal server error during authentication".into(),
-            };
-            let _ = ws_sender
-                .send(Message::Close(Some(close_frame)))
-                .await;
-            return Ok(());
-        }
+    // ── Authentication & authorization ──────────────────────────
+    if let Err(reason) = authenticate_charge_point(
+        &charge_point_id,
+        &auth_header,
+        &ws_auth,
+        &repos,
+    )
+    .await
+    {
+        warn!(
+            "[{}] Authentication failed from {}: {}",
+            charge_point_id, addr, reason
+        );
+        let (mut ws_sender, _) = ws_stream.split();
+        let close_frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+            code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Policy,
+            reason: reason.into(),
+        };
+        let _ = ws_sender.send(Message::Close(Some(close_frame))).await;
+        return Ok(());
     }
 
     // ── Create version-specific adapter ────────────────────
@@ -505,6 +502,94 @@ async fn handle_connection(
     info!("[{}] Disconnected", charge_point_id);
 
     Ok(())
+}
+
+// ── WebSocket authentication ───────────────────────────────────
+
+/// Authenticate a charge point based on the configured WS auth mode.
+///
+/// Returns `Ok(())` if the connection is allowed, or `Err(reason)` to reject.
+async fn authenticate_charge_point(
+    charge_point_id: &str,
+    auth_header: &Option<String>,
+    ws_auth: &WsAuthConfig,
+    repos: &Arc<dyn RepositoryProvider>,
+) -> Result<(), String> {
+    match ws_auth.mode.to_lowercase().as_str() {
+        "basic" => {
+            // ── OCPP Security Profile 1: HTTP Basic Auth ──
+            let (username, password) = auth_header
+                .as_deref()
+                .and_then(decode_basic_auth)
+                .ok_or_else(|| {
+                    "Basic Auth required: send Authorization header with base64(charge_point_id:password)".to_string()
+                })?;
+
+            // Username in Basic Auth must match the charge_point_id from the URL path
+            if username != charge_point_id {
+                return Err(format!(
+                    "Basic Auth username '{}' does not match charge point ID '{}'",
+                    username, charge_point_id
+                ));
+            }
+
+            // Look up the charge point and verify password
+            match repos.charge_points().find_by_id(charge_point_id).await {
+                Ok(Some(cp)) => match cp.password_hash {
+                    Some(ref hash) => {
+                        if verify_password(&password, hash).unwrap_or(false) {
+                            info!("[{}] Basic Auth verified successfully", charge_point_id);
+                            Ok(())
+                        } else {
+                            Err("Invalid password".to_string())
+                        }
+                    }
+                    None => Err(format!(
+                        "Charge point '{}' has no password configured — set one via the API",
+                        charge_point_id
+                    )),
+                },
+                Ok(None) => Err(format!("Unknown charge point '{}'", charge_point_id)),
+                Err(e) => Err(format!("Database error during authentication: {}", e)),
+            }
+        }
+        _ => {
+            // ── mode = "none": optional whitelist check ───
+            if ws_auth.reject_unknown_charge_points {
+                match repos.charge_points().find_by_id(charge_point_id).await {
+                    Ok(Some(_)) => {
+                        info!(
+                            "[{}] Charge point found in database, connection allowed",
+                            charge_point_id
+                        );
+                        Ok(())
+                    }
+                    Ok(None) => Err(format!(
+                        "Charge point '{}' not registered in database",
+                        charge_point_id
+                    )),
+                    Err(e) => Err(format!("Database error: {}", e)),
+                }
+            } else {
+                // No auth, no whitelist — allow any connection
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Decode an HTTP Basic Auth header value.
+///
+/// Input: `"Basic dXNlcjpwYXNz"` → `Some(("user", "pass"))`
+fn decode_basic_auth(header: &str) -> Option<(String, String)> {
+    use base64::Engine;
+    let encoded = header.strip_prefix("Basic ")?;
+    let decoded_bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .ok()?;
+    let credentials = String::from_utf8(decoded_bytes).ok()?;
+    let (user, pass) = credentials.split_once(':')?;
+    Some((user.to_string(), pass.to_string()))
 }
 
 // ── OCPP message correlation ───────────────────────────────────

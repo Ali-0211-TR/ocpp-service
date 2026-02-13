@@ -116,3 +116,23 @@ pub struct ChargePointStats {
     pub offline: u32,
     pub charging: u32,
 }
+
+/// Request to set or update a charge point's WebSocket authentication password.
+///
+/// Used for OCPP Security Profile 1 (Basic Auth).
+/// The charge point will authenticate with `Authorization: Basic base64(id:password)`.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct SetPasswordRequest {
+    /// The new password for the charge point (min 8 characters).
+    /// Set to `null` or omit to remove the password (disable Basic Auth for this CP).
+    #[validate(length(min = 8, max = 128, message = "password must be 8–128 characters"))]
+    pub password: String,
+}
+
+/// Response after setting a charge point password.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SetPasswordResponse {
+    pub message: String,
+    /// Whether the charge point now has a password configured.
+    pub has_password: bool,
+}

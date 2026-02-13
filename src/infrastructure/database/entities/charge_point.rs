@@ -35,6 +35,10 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub meter_serial_number: Option<String>,
 
+    /// Bcrypt hash of the charge point password (OCPP Security Profile 1 — Basic Auth)
+    #[sea_orm(nullable)]
+    pub password_hash: Option<String>,
+
     /// Status: Online, Offline, Unknown
     pub status: String,
 

@@ -13,4 +13,6 @@ pub trait ChargePointRepository: Send + Sync {
     async fn update(&self, charge_point: ChargePoint) -> DomainResult<()>;
     async fn update_status(&self, id: &str, status: ChargePointStatus) -> DomainResult<()>;
     async fn delete(&self, id: &str) -> DomainResult<()>;
+    /// Set or clear the WS authentication password hash for a charge point.
+    async fn set_password_hash(&self, id: &str, hash: Option<String>) -> DomainResult<()>;
 }

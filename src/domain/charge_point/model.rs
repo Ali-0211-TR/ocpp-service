@@ -118,6 +118,8 @@ pub struct ChargePoint {
     pub meter_type: Option<String>,
     /// Meter serial number
     pub meter_serial_number: Option<String>,
+    /// Bcrypt hash of the WS authentication password (OCPP Security Profile 1)
+    pub password_hash: Option<String>,
     /// Registration status
     pub status: ChargePointStatus,
     /// Connectors
@@ -141,6 +143,7 @@ impl ChargePoint {
             imsi: None,
             meter_type: None,
             meter_serial_number: None,
+            password_hash: None,
             status: ChargePointStatus::Unknown,
             connectors: Vec::new(),
             registered_at: Utc::now(),
