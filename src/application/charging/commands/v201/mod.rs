@@ -10,6 +10,7 @@ pub mod clear_charging_profile;
 pub mod clear_variable_monitoring;
 pub mod data_transfer;
 pub mod get_base_report;
+pub mod get_charging_profiles;
 pub mod get_composite_schedule;
 pub mod get_local_list_version;
 pub mod get_log;

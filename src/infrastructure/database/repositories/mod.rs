@@ -3,6 +3,7 @@
 //! Per-aggregate SeaORM repositories + unified RepositoryProvider.
 
 pub mod charge_point_repository;
+pub mod charging_profile_repository;
 pub mod id_tag_repository;
 pub mod repository_provider;
 pub mod reservation_repository;

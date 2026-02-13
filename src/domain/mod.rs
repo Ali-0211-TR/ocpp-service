@@ -5,6 +5,7 @@
 
 // ── Aggregates ──────────────────────────────────────────────────
 pub mod charge_point;
+pub mod charging_profile;
 pub mod id_tag;
 pub mod ocpp;
 pub mod reservation;
@@ -44,6 +45,9 @@ pub use id_tag::{IdTag, IdTagRepository, IdTagStatus};
 
 // Reservation aggregate
 pub use reservation::{Reservation, ReservationRepository, ReservationStatus};
+
+// ChargingProfile aggregate
+pub use charging_profile::{ChargingProfile, ChargingProfileRepository};
 
 // OCPP shared types
 pub use ocpp::{ApiKey, OcppVersion};

@@ -12,6 +12,8 @@ use async_trait::async_trait;
 
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
 use crate::application::charging::commands::dispatcher::ClearVariableMonitoringResult;
+use crate::application::charging::commands::dispatcher::GetChargingProfilesCriteria;
+use crate::application::charging::commands::dispatcher::GetChargingProfilesResult;
 use crate::application::charging::commands::dispatcher::GetDiagnosticsResult;
 use crate::application::charging::commands::dispatcher::GetBaseReportResult;
 use crate::application::charging::commands::dispatcher::MonitorDescriptor;
@@ -310,4 +312,14 @@ pub trait OcppOutboundPort: Send + Sync {
         charge_point_id: &str,
         ids: Vec<i32>,
     ) -> Result<ClearVariableMonitoringResult, CommandError>;
+
+    // ─── Charging Profile Queries (v2.0.1 only) ────────────────
+
+    /// GetChargingProfiles — request installed profiles from a charge point.
+    async fn get_charging_profiles(
+        &self,
+        charge_point_id: &str,
+        request_id: i32,
+        criteria: GetChargingProfilesCriteria,
+    ) -> Result<GetChargingProfilesResult, CommandError>;
 }

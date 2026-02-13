@@ -441,3 +441,61 @@ pub struct ClearMonitoringResultDto {
 pub struct ClearVariableMonitoringResponse {
     pub results: Vec<ClearMonitoringResultDto>,
 }
+
+// ─── Charging Profile Queries (v2.0.1) ───────────────────────────────
+
+/// GetChargingProfiles request body (v2.0.1 only).
+///
+/// Instructs the charge point to report its installed charging profiles.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct GetChargingProfilesHttpRequest {
+    /// Request ID to correlate with the asynchronous ReportChargingProfiles responses.
+    pub request_id: i32,
+    /// EVSE ID filter (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evse_id: Option<i32>,
+    /// Filter by charging profile purpose.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// Filter by stack level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_level: Option<i32>,
+    /// Filter by specific profile IDs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_ids: Option<Vec<i32>>,
+}
+
+/// GetChargingProfiles response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GetChargingProfilesHttpResponse {
+    /// Status returned by the charge point ("Accepted" or "NoProfiles").
+    pub status: String,
+}
+
+/// A stored charging profile DTO (from DB).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ChargingProfileDto {
+    pub id: i32,
+    pub charge_point_id: String,
+    pub evse_id: i32,
+    pub profile_id: i32,
+    pub stack_level: i32,
+    pub purpose: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recurrency_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_to: Option<String>,
+    pub schedule_json: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Response for listing stored charging profiles.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ChargingProfileListResponse {
+    pub profiles: Vec<ChargingProfileDto>,
+}

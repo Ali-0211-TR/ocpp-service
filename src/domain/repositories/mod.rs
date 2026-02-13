@@ -6,6 +6,7 @@
 //! - `DomainResult` — standard result type for domain operations
 
 use super::charge_point::ChargePointRepository;
+use super::charging_profile::ChargingProfileRepository;
 use super::id_tag::IdTagRepository;
 use super::reservation::ReservationRepository;
 use super::tariff::{BillingRepository, TariffRepository};
@@ -35,6 +36,7 @@ pub trait RepositoryProvider: Send + Sync {
     fn tariffs(&self) -> &dyn TariffRepository;
     fn billing(&self) -> &dyn BillingRepository;
     fn reservations(&self) -> &dyn ReservationRepository;
+    fn charging_profiles(&self) -> &dyn ChargingProfileRepository;
 }
 
 // ── Legacy Storage trait removed ────────────────────────────────

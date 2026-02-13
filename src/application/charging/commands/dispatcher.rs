@@ -20,6 +20,7 @@ pub use super::{
 };
 pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
 pub use v201::clear_variable_monitoring::ClearVariableMonitoringResult;
+pub use v201::get_charging_profiles::{GetChargingProfilesCriteria, GetChargingProfilesResult};
 pub use v201::get_log::GetLogResult;
 pub use v201::get_base_report::GetBaseReportResult;
 pub use v201::get_variables::GetVariablesResult;
@@ -982,6 +983,39 @@ impl CommandDispatcher {
         record_command_latency("clear_variable_monitoring", start);
         result
     }
+
+    // ─── GetChargingProfiles (v2.0.1 only) ────────────────────────────
+
+    /// GetChargingProfiles — request the charge point to report its installed profiles.
+    ///
+    /// v1.6 does not support this action; returns `UnsupportedVersion`.
+    pub async fn get_charging_profiles(
+        &self,
+        charge_point_id: &str,
+        request_id: i32,
+        criteria: GetChargingProfilesCriteria,
+    ) -> Result<GetChargingProfilesResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching GetChargingProfiles");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "GetChargingProfiles is not supported for OCPP 1.6".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::get_charging_profiles::get_charging_profiles(
+                    &self.command_sender,
+                    charge_point_id,
+                    request_id,
+                    criteria,
+                )
+                .await
+            }
+        };
+        record_command_latency("get_charging_profiles", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -1259,6 +1293,16 @@ impl OcppOutboundPort for CommandDispatcher {
         ids: Vec<i32>,
     ) -> Result<ClearVariableMonitoringResult, CommandError> {
         CommandDispatcher::clear_variable_monitoring(self, charge_point_id, ids)
+            .await
+    }
+
+    async fn get_charging_profiles(
+        &self,
+        charge_point_id: &str,
+        request_id: i32,
+        criteria: GetChargingProfilesCriteria,
+    ) -> Result<GetChargingProfilesResult, CommandError> {
+        CommandDispatcher::get_charging_profiles(self, charge_point_id, request_id, criteria)
             .await
     }
 }

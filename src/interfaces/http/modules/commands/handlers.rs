@@ -13,8 +13,10 @@ use tracing::{error, info, warn};
 use super::dto::{
     ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
     ClearMonitoringResultDto, ClearVariableMonitoringRequest, ClearVariableMonitoringResponse,
+    ChargingProfileDto, ChargingProfileListResponse,
     CommandResponse, DataTransferRequest, DataTransferResponse, GetBaseReportRequest,
-    GetBaseReportResponse, GetCompositeScheduleRequest,
+    GetBaseReportResponse, GetChargingProfilesHttpRequest, GetChargingProfilesHttpResponse,
+    GetCompositeScheduleRequest,
     GetCompositeScheduleResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
     GetVariablesRequest, GetVariablesResponse,
     LocalListVersionResponse, MonitoringResultDto,
@@ -31,6 +33,7 @@ use crate::application::events::{
     Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
 };
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
+use crate::application::charging::commands::dispatcher::GetChargingProfilesCriteria;
 use crate::application::charging::commands::dispatcher::MonitorDescriptor;
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
@@ -1092,7 +1095,7 @@ pub async fn clear_charging_profile(
     let criteria = ClearChargingProfileCriteria {
         charging_profile_id: request.charging_profile_id,
         evse_id: request.evse_id,
-        charging_profile_purpose: request.charging_profile_purpose,
+        charging_profile_purpose: request.charging_profile_purpose.clone(),
         stack_level: request.stack_level,
     };
 
@@ -1103,6 +1106,35 @@ pub async fn clear_charging_profile(
     {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
+
+            // Persist deactivation in DB when the station accepts
+            if accepted {
+                if let Some(profile_id) = request.charging_profile_id {
+                    if let Err(e) = state
+                        .repos
+                        .charging_profiles()
+                        .deactivate_by_profile_id(&charge_point_id, profile_id)
+                        .await
+                    {
+                        warn!("Failed to deactivate profile {} in DB: {}", profile_id, e);
+                    }
+                } else {
+                    if let Err(e) = state
+                        .repos
+                        .charging_profiles()
+                        .deactivate_by_criteria(
+                            &charge_point_id,
+                            request.evse_id,
+                            request.charging_profile_purpose.as_deref(),
+                            request.stack_level,
+                        )
+                        .await
+                    {
+                        warn!("Failed to deactivate profiles by criteria in DB: {}", e);
+                    }
+                }
+            }
+
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
                 message: if accepted {
@@ -1152,12 +1184,86 @@ pub async fn set_charging_profile(
         .set_charging_profile(
             &charge_point_id,
             request.evse_id,
-            request.charging_profile,
+            request.charging_profile.clone(),
         )
         .await
     {
         Ok(status_str) => {
             let accepted = status_str.contains("Accepted");
+
+            // Persist the profile in DB when accepted
+            if accepted {
+                let profile_json = &request.charging_profile;
+                let profile_id = profile_json
+                    .get("chargingProfileId")
+                    .or_else(|| profile_json.get("id"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as i32;
+                let stack_level = profile_json
+                    .get("stackLevel")
+                    .or_else(|| profile_json.get("stack_level"))
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as i32;
+                let purpose = profile_json
+                    .get("chargingProfilePurpose")
+                    .or_else(|| profile_json.get("charging_profile_purpose"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("TxDefaultProfile")
+                    .to_string();
+                let kind = profile_json
+                    .get("chargingProfileKind")
+                    .or_else(|| profile_json.get("charging_profile_kind"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Absolute")
+                    .to_string();
+                let recurrency_kind = profile_json
+                    .get("recurrencyKind")
+                    .or_else(|| profile_json.get("recurrency_kind"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let valid_from = profile_json
+                    .get("validFrom")
+                    .or_else(|| profile_json.get("valid_from"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&Utc));
+                let valid_to = profile_json
+                    .get("validTo")
+                    .or_else(|| profile_json.get("valid_to"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&Utc));
+
+                // Extract schedule(s) as JSON
+                let schedule_json = profile_json
+                    .get("chargingSchedule")
+                    .or_else(|| profile_json.get("charging_schedule"))
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "[]".to_string());
+
+                let now = Utc::now();
+                let domain_profile = crate::domain::ChargingProfile {
+                    id: 0, // auto-generated
+                    charge_point_id: charge_point_id.clone(),
+                    evse_id: request.evse_id,
+                    profile_id,
+                    stack_level,
+                    purpose,
+                    kind,
+                    recurrency_kind,
+                    valid_from,
+                    valid_to,
+                    schedule_json,
+                    is_active: true,
+                    created_at: now,
+                    updated_at: now,
+                };
+
+                if let Err(e) = state.repos.charging_profiles().save(domain_profile).await {
+                    warn!("Failed to save charging profile to DB: {}", e);
+                }
+            }
+
             Ok(Json(ApiResponse::success(CommandResponse {
                 status: status_str,
                 message: if accepted {
@@ -1611,4 +1717,139 @@ pub async fn clear_variable_monitoring_handler(
             Json(ApiResponse::error(e.to_string())),
         )),
     }
+}
+
+// ─── Charging Profile Management ───────────────────────────────────────────
+
+/// Request the charge point to report its installed charging profiles (v2.0.1 only).
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/charging-profiles/request",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = GetChargingProfilesHttpRequest,
+    responses(
+        (status = 200, description = "GetChargingProfiles result", body = ApiResponse<GetChargingProfilesHttpResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn get_charging_profiles_handler(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<GetChargingProfilesHttpRequest>,
+) -> Result<
+    Json<ApiResponse<GetChargingProfilesHttpResponse>>,
+    (StatusCode, Json<ApiResponse<GetChargingProfilesHttpResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let criteria = GetChargingProfilesCriteria {
+        evse_id: request.evse_id,
+        purpose: request.purpose,
+        stack_level: request.stack_level,
+        profile_ids: request.profile_ids,
+    };
+
+    match state
+        .command_dispatcher
+        .get_charging_profiles(&charge_point_id, request.request_id, criteria)
+        .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(GetChargingProfilesHttpResponse {
+            status: result.status,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// List stored charging profiles for a charge point (from DB).
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/charging-profiles",
+    tag = "Commands",
+    params(
+        ("charge_point_id" = String, Path, description = "Charge point ID"),
+        ("active_only" = Option<bool>, Query, description = "Return only active profiles (default: true)")
+    ),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    responses(
+        (status = 200, description = "Stored charging profiles", body = ApiResponse<ChargingProfileListResponse>),
+        (status = 500, description = "Database error")
+    )
+)]
+pub async fn list_charging_profiles(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Query(params): Query<ChargingProfileQueryParams>,
+) -> Result<
+    Json<ApiResponse<ChargingProfileListResponse>>,
+    (StatusCode, Json<ApiResponse<ChargingProfileListResponse>>),
+> {
+    let active_only = params.active_only.unwrap_or(true);
+
+    let profiles_result = if active_only {
+        state
+            .repos
+            .charging_profiles()
+            .find_active_for_charge_point(&charge_point_id)
+            .await
+    } else {
+        state
+            .repos
+            .charging_profiles()
+            .find_all_for_charge_point(&charge_point_id)
+            .await
+    };
+
+    match profiles_result {
+        Ok(profiles) => {
+            let dtos: Vec<ChargingProfileDto> = profiles
+                .into_iter()
+                .map(|p| ChargingProfileDto {
+                    id: p.id,
+                    charge_point_id: p.charge_point_id,
+                    evse_id: p.evse_id,
+                    profile_id: p.profile_id,
+                    stack_level: p.stack_level,
+                    purpose: p.purpose,
+                    kind: p.kind,
+                    recurrency_kind: p.recurrency_kind,
+                    valid_from: p.valid_from.map(|dt| dt.to_rfc3339()),
+                    valid_to: p.valid_to.map(|dt| dt.to_rfc3339()),
+                    schedule_json: p.schedule_json,
+                    is_active: p.is_active,
+                    created_at: p.created_at.to_rfc3339(),
+                    updated_at: p.updated_at.to_rfc3339(),
+                })
+                .collect();
+            Ok(Json(ApiResponse::success(ChargingProfileListResponse {
+                profiles: dtos,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(format!(
+                "Failed to load charging profiles: {}",
+                e
+            ))),
+        )),
+    }
+}
+
+/// Query params for listing charging profiles.
+#[derive(Debug, serde::Deserialize)]
+pub struct ChargingProfileQueryParams {
+    pub active_only: Option<bool>,
 }

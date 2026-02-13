@@ -199,6 +199,8 @@ impl Modify for SecurityAddon {
         commands::data_transfer_handler,
         commands::clear_charging_profile,
         commands::set_charging_profile,
+        commands::list_charging_profiles,
+        commands::get_charging_profiles_handler,
         commands::get_composite_schedule,
         // Firmware Management
         commands::update_firmware,
@@ -290,6 +292,10 @@ impl Modify for SecurityAddon {
             commands::ConfigurationResponse,
             commands::SetChargingProfileRequest,
             commands::ClearChargingProfileRequest,
+            commands::GetChargingProfilesHttpRequest,
+            commands::GetChargingProfilesHttpResponse,
+            commands::ChargingProfileDto,
+            commands::ChargingProfileListResponse,
             commands::GetCompositeScheduleRequest,
             commands::GetCompositeScheduleResponse,
             commands::UpdateFirmwareRequest,
@@ -454,6 +460,14 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/charging-profile/set",
             post(commands::set_charging_profile),
+        )
+        .route(
+            "/{charge_point_id}/charging-profiles",
+            get(commands::list_charging_profiles),
+        )
+        .route(
+            "/{charge_point_id}/charging-profiles/request",
+            post(commands::get_charging_profiles_handler),
         )
         .route(
             "/{charge_point_id}/composite-schedule",

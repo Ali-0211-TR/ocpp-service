@@ -2,6 +2,7 @@
 
 pub mod api_key;
 pub mod charge_point;
+pub mod charging_profile;
 pub mod connector;
 pub mod id_tag;
 pub mod reservation;
@@ -11,6 +12,7 @@ pub mod user;
 
 pub use api_key::Entity as ApiKey;
 pub use charge_point::Entity as ChargePoint;
+pub use charging_profile::Entity as ChargingProfile;
 pub use connector::Entity as Connector;
 pub use id_tag::Entity as IdTag;
 pub use reservation::Entity as Reservation;
