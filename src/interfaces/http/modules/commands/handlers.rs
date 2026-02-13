@@ -12,13 +12,18 @@ use tracing::{error, info, warn};
 
 use super::dto::{
     ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
+    ClearMonitoringResultDto, ClearVariableMonitoringRequest, ClearVariableMonitoringResponse,
     CommandResponse, DataTransferRequest, DataTransferResponse, GetBaseReportRequest,
     GetBaseReportResponse, GetCompositeScheduleRequest,
     GetCompositeScheduleResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
     GetVariablesRequest, GetVariablesResponse,
-    LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest, ResetRequest,
-    SendLocalListRequest, SendLocalListResponse, SetChargingProfileRequest, SetVariablesRequest,
-    SetVariablesResponse, TriggerMessageRequest, UnlockConnectorRequest,
+    LocalListVersionResponse, MonitoringResultDto,
+    RemoteStartRequest, RemoteStopRequest, ResetRequest,
+    SendLocalListRequest, SendLocalListResponse, SetChargingProfileRequest,
+    SetMonitoringBaseRequest, SetMonitoringBaseResponse,
+    SetVariableMonitoringRequest, SetVariableMonitoringResponse,
+    SetVariablesRequest, SetVariablesResponse,
+    TriggerMessageRequest, UnlockConnectorRequest,
     UpdateFirmwareRequest, UpdateFirmwareResponse, VariableResultDto,
     SetVariableStatusDto,
 };
@@ -26,6 +31,7 @@ use crate::application::events::{
     Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
 };
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
+use crate::application::charging::commands::dispatcher::MonitorDescriptor;
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
 use crate::application::{
@@ -1422,4 +1428,187 @@ pub async fn get_device_report(
 #[derive(Debug, serde::Deserialize)]
 pub struct ReportQueryParams {
     pub request_id: Option<i32>,
+}
+
+// ─── Variable Monitoring (v2.0.1 only) ────────────────────────────────
+
+/// Configure variable monitors on a charge point (v2.0.1 only).
+///
+/// Sends a SetVariableMonitoring command with one or more monitor descriptors.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/monitoring/set",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = SetVariableMonitoringRequest,
+    responses(
+        (status = 200, description = "Monitoring set results", body = ApiResponse<SetVariableMonitoringResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn set_variable_monitoring_handler(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<SetVariableMonitoringRequest>,
+) -> Result<
+    Json<ApiResponse<SetVariableMonitoringResponse>>,
+    (StatusCode, Json<ApiResponse<SetVariableMonitoringResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let monitors: Vec<MonitorDescriptor> = request
+        .monitors
+        .into_iter()
+        .map(|m| MonitorDescriptor {
+            component: m.component,
+            variable: m.variable,
+            monitor_type: m.monitor_type,
+            value: m.value,
+            severity: m.severity,
+            transaction: m.transaction,
+            id: m.id,
+        })
+        .collect();
+
+    match state
+        .command_dispatcher
+        .set_variable_monitoring(&charge_point_id, monitors)
+        .await
+    {
+        Ok(result) => {
+            let results = result
+                .results
+                .into_iter()
+                .map(|r| MonitoringResultDto {
+                    component: r.component,
+                    variable: r.variable,
+                    status: r.status,
+                    monitor_id: r.monitor_id,
+                    monitor_type: r.monitor_type,
+                })
+                .collect();
+            Ok(Json(ApiResponse::success(SetVariableMonitoringResponse {
+                results,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Set the monitoring base level on a charge point (v2.0.1 only).
+///
+/// Controls which monitors are active: All, FactoryDefault, or HardWiredOnly.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/monitoring/base",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = SetMonitoringBaseRequest,
+    responses(
+        (status = 200, description = "Monitoring base result", body = ApiResponse<SetMonitoringBaseResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn set_monitoring_base_handler(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<SetMonitoringBaseRequest>,
+) -> Result<
+    Json<ApiResponse<SetMonitoringBaseResponse>>,
+    (StatusCode, Json<ApiResponse<SetMonitoringBaseResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match state
+        .command_dispatcher
+        .set_monitoring_base(&charge_point_id, &request.monitoring_base)
+        .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(SetMonitoringBaseResponse {
+            status: result.status,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Clear variable monitors on a charge point (v2.0.1 only).
+///
+/// Removes monitors by their IDs.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/monitoring/clear",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = ClearVariableMonitoringRequest,
+    responses(
+        (status = 200, description = "Clear monitoring results", body = ApiResponse<ClearVariableMonitoringResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn clear_variable_monitoring_handler(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<ClearVariableMonitoringRequest>,
+) -> Result<
+    Json<ApiResponse<ClearVariableMonitoringResponse>>,
+    (StatusCode, Json<ApiResponse<ClearVariableMonitoringResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match state
+        .command_dispatcher
+        .clear_variable_monitoring(&charge_point_id, request.ids)
+        .await
+    {
+        Ok(result) => {
+            let results = result
+                .results
+                .into_iter()
+                .map(|r| ClearMonitoringResultDto {
+                    id: r.id,
+                    status: r.status,
+                })
+                .collect();
+            Ok(Json(ApiResponse::success(ClearVariableMonitoringResponse {
+                results,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
 }

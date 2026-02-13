@@ -206,6 +206,10 @@ impl Modify for SecurityAddon {
         // Device Reports
         commands::request_base_report,
         commands::get_device_report,
+        // Variable Monitoring (v2.0.1)
+        commands::set_variable_monitoring_handler,
+        commands::set_monitoring_base_handler,
+        commands::clear_variable_monitoring_handler,
         // Transactions
         transactions::list_all_transactions,
         transactions::list_transactions_for_charge_point,
@@ -294,6 +298,16 @@ impl Modify for SecurityAddon {
             commands::GetDiagnosticsResponse,
             commands::GetBaseReportRequest,
             commands::GetBaseReportResponse,
+            // Variable Monitoring
+            commands::SetVariableMonitoringRequest,
+            commands::MonitorDescriptorDto,
+            commands::MonitoringResultDto,
+            commands::SetVariableMonitoringResponse,
+            commands::SetMonitoringBaseRequest,
+            commands::SetMonitoringBaseResponse,
+            commands::ClearVariableMonitoringRequest,
+            commands::ClearMonitoringResultDto,
+            commands::ClearVariableMonitoringResponse,
             // Device Report types
             crate::application::charging::services::device_report::DeviceReport,
             crate::application::charging::services::device_report::ReportVariable,
@@ -480,6 +494,19 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/report",
             post(commands::request_base_report).get(commands::get_device_report),
+        )
+        // --- Variable Monitoring (v2.0.1) ---
+        .route(
+            "/{charge_point_id}/monitoring/set",
+            post(commands::set_variable_monitoring_handler),
+        )
+        .route(
+            "/{charge_point_id}/monitoring/base",
+            post(commands::set_monitoring_base_handler),
+        )
+        .route(
+            "/{charge_point_id}/monitoring/clear",
+            post(commands::clear_variable_monitoring_handler),
         )
         // auth middleware + unified state
         .layer(middleware::from_fn_with_state(

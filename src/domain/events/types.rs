@@ -20,6 +20,7 @@ pub enum Event {
     HeartbeatReceived(HeartbeatEvent),
     AuthorizationResult(AuthorizationEvent),
     BootNotification(BootNotificationEvent),
+    DeviceAlert(DeviceAlertEvent),
     Error(ErrorEvent),
 }
 
@@ -37,6 +38,7 @@ impl Event {
             Event::HeartbeatReceived(_) => "heartbeat_received",
             Event::AuthorizationResult(_) => "authorization_result",
             Event::BootNotification(_) => "boot_notification",
+            Event::DeviceAlert(_) => "device_alert",
             Event::Error(_) => "error",
         }
     }
@@ -54,6 +56,7 @@ impl Event {
             Event::HeartbeatReceived(e) => Some(&e.charge_point_id),
             Event::AuthorizationResult(e) => Some(&e.charge_point_id),
             Event::BootNotification(e) => Some(&e.charge_point_id),
+            Event::DeviceAlert(e) => Some(&e.charge_point_id),
             Event::Error(e) => e.charge_point_id.as_deref(),
         }
     }
@@ -164,6 +167,23 @@ pub struct BootNotificationEvent {
     pub serial_number: Option<String>,
     pub firmware_version: Option<String>,
     pub ocpp_version: String,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceAlertEvent {
+    pub charge_point_id: String,
+    pub event_id: i32,
+    pub component: String,
+    pub variable: String,
+    pub actual_value: String,
+    pub trigger: String,
+    pub event_notification_type: String,
+    pub severity: Option<u8>,
+    pub tech_code: Option<String>,
+    pub tech_info: Option<String>,
+    pub cleared: Option<bool>,
+    pub transaction_id: Option<String>,
     pub timestamp: DateTime<Utc>,
 }
 

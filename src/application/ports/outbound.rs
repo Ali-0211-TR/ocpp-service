@@ -11,8 +11,12 @@
 use async_trait::async_trait;
 
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
+use crate::application::charging::commands::dispatcher::ClearVariableMonitoringResult;
 use crate::application::charging::commands::dispatcher::GetDiagnosticsResult;
 use crate::application::charging::commands::dispatcher::GetBaseReportResult;
+use crate::application::charging::commands::dispatcher::MonitorDescriptor;
+use crate::application::charging::commands::dispatcher::SetMonitoringBaseResult;
+use crate::application::charging::commands::dispatcher::SetVariableMonitoringResult;
 use crate::application::charging::commands::{
     Availability, CommandError, CompositeScheduleResult, ConfigurationResult, DataTransferResult,
     LocalAuthEntry, ResetKind, TriggerType,
@@ -283,4 +287,27 @@ pub trait OcppOutboundPort: Send + Sync {
         request_id: i32,
         report_base: &str,
     ) -> Result<GetBaseReportResult, CommandError>;
+
+    // ─── Variable Monitoring (v2.0.1 only) ─────────────────────
+
+    /// SetVariableMonitoring — configure variable monitors on a charge point.
+    async fn set_variable_monitoring(
+        &self,
+        charge_point_id: &str,
+        monitors: Vec<MonitorDescriptor>,
+    ) -> Result<SetVariableMonitoringResult, CommandError>;
+
+    /// SetMonitoringBase — set the monitoring base level.
+    async fn set_monitoring_base(
+        &self,
+        charge_point_id: &str,
+        monitoring_base: &str,
+    ) -> Result<SetMonitoringBaseResult, CommandError>;
+
+    /// ClearVariableMonitoring — remove variable monitors by ID.
+    async fn clear_variable_monitoring(
+        &self,
+        charge_point_id: &str,
+        ids: Vec<i32>,
+    ) -> Result<ClearVariableMonitoringResult, CommandError>;
 }

@@ -355,3 +355,89 @@ pub struct GetBaseReportResponse {
     /// Use GET /charge-points/{id}/report?request_id={request_id} to retrieve parts.
     pub request_id: i32,
 }
+
+// ─── Variable Monitoring (v2.0.1 only) ────────────────────────────────
+
+/// A single monitor descriptor for SetVariableMonitoring.
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
+pub struct MonitorDescriptorDto {
+    /// Component name (e.g. "EVSE", "Connector").
+    #[validate(length(min = 1, message = "component is required"))]
+    pub component: String,
+    /// Variable name within the component.
+    #[validate(length(min = 1, message = "variable is required"))]
+    pub variable: String,
+    /// Monitor type: "UpperThreshold", "LowerThreshold", "Delta", "Periodic", "PeriodicClockAligned".
+    #[validate(length(min = 1, message = "monitor_type is required"))]
+    pub monitor_type: String,
+    /// Threshold / delta / period value.
+    pub value: f64,
+    /// Severity (0–9). 0 = Danger, 9 = Informational.
+    pub severity: u8,
+    /// Whether the monitor applies only during a transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<bool>,
+    /// Existing monitor ID to update (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
+}
+
+/// SetVariableMonitoring request body (v2.0.1 only).
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct SetVariableMonitoringRequest {
+    #[validate(length(min = 1, message = "at least one monitor is required"))]
+    #[validate(nested)]
+    pub monitors: Vec<MonitorDescriptorDto>,
+}
+
+/// A single monitoring-set result.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MonitoringResultDto {
+    pub component: String,
+    pub variable: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monitor_id: Option<i32>,
+    pub monitor_type: String,
+}
+
+/// SetVariableMonitoring response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SetVariableMonitoringResponse {
+    pub results: Vec<MonitoringResultDto>,
+}
+
+/// SetMonitoringBase request body (v2.0.1 only).
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct SetMonitoringBaseRequest {
+    /// Monitoring base: "All", "FactoryDefault", or "HardWiredOnly".
+    #[validate(length(min = 1, message = "monitoring_base is required"))]
+    pub monitoring_base: String,
+}
+
+/// SetMonitoringBase response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SetMonitoringBaseResponse {
+    pub status: String,
+}
+
+/// ClearVariableMonitoring request body (v2.0.1 only).
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct ClearVariableMonitoringRequest {
+    /// List of monitor IDs to clear.
+    #[validate(length(min = 1, message = "at least one monitor ID is required"))]
+    pub ids: Vec<i32>,
+}
+
+/// A single clear-monitor result.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClearMonitoringResultDto {
+    pub id: i32,
+    pub status: String,
+}
+
+/// ClearVariableMonitoring response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClearVariableMonitoringResponse {
+    pub results: Vec<ClearMonitoringResultDto>,
+}

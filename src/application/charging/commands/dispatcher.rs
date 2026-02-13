@@ -19,9 +19,12 @@ pub use super::{
     LocalAuthEntry, ResetKind, TriggerType,
 };
 pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
+pub use v201::clear_variable_monitoring::ClearVariableMonitoringResult;
 pub use v201::get_log::GetLogResult;
 pub use v201::get_base_report::GetBaseReportResult;
 pub use v201::get_variables::GetVariablesResult;
+pub use v201::set_monitoring_base::SetMonitoringBaseResult;
+pub use v201::set_variable_monitoring::{MonitorDescriptor, SetVariableMonitoringResult};
 pub use v201::set_variables::SetVariablesResult;
 
 /// Unified result for GetDiagnostics (v1.6) / GetLog (v2.0.1).
@@ -892,6 +895,93 @@ impl CommandDispatcher {
         record_command_latency("get_base_report", start);
         result
     }
+
+    // ─── SetVariableMonitoring (v2.0.1 only) ──────────────────────────
+
+    /// Configure variable monitors on a v2.0.1 charge point.
+    pub async fn set_variable_monitoring(
+        &self,
+        charge_point_id: &str,
+        monitors: Vec<MonitorDescriptor>,
+    ) -> Result<SetVariableMonitoringResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching SetVariableMonitoring");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "SetVariableMonitoring is not supported for OCPP 1.6".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::set_variable_monitoring::set_variable_monitoring(
+                    &self.command_sender,
+                    charge_point_id,
+                    monitors,
+                )
+                .await
+            }
+        };
+        record_command_latency("set_variable_monitoring", start);
+        result
+    }
+
+    // ─── SetMonitoringBase (v2.0.1 only) ──────────────────────────────
+
+    /// Set the monitoring base on a v2.0.1 charge point.
+    pub async fn set_monitoring_base(
+        &self,
+        charge_point_id: &str,
+        monitoring_base: &str,
+    ) -> Result<SetMonitoringBaseResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching SetMonitoringBase");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "SetMonitoringBase is not supported for OCPP 1.6".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::set_monitoring_base::set_monitoring_base(
+                    &self.command_sender,
+                    charge_point_id,
+                    monitoring_base,
+                )
+                .await
+            }
+        };
+        record_command_latency("set_monitoring_base", start);
+        result
+    }
+
+    // ─── ClearVariableMonitoring (v2.0.1 only) ────────────────────────
+
+    /// Clear variable monitors on a v2.0.1 charge point.
+    pub async fn clear_variable_monitoring(
+        &self,
+        charge_point_id: &str,
+        ids: Vec<i32>,
+    ) -> Result<ClearVariableMonitoringResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching ClearVariableMonitoring");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "ClearVariableMonitoring is not supported for OCPP 1.6".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::clear_variable_monitoring::clear_variable_monitoring(
+                    &self.command_sender,
+                    charge_point_id,
+                    ids,
+                )
+                .await
+            }
+        };
+        record_command_latency("clear_variable_monitoring", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -1142,6 +1232,33 @@ impl OcppOutboundPort for CommandDispatcher {
         report_base: &str,
     ) -> Result<GetBaseReportResult, CommandError> {
         CommandDispatcher::get_base_report(self, charge_point_id, request_id, report_base)
+            .await
+    }
+
+    async fn set_variable_monitoring(
+        &self,
+        charge_point_id: &str,
+        monitors: Vec<MonitorDescriptor>,
+    ) -> Result<SetVariableMonitoringResult, CommandError> {
+        CommandDispatcher::set_variable_monitoring(self, charge_point_id, monitors)
+            .await
+    }
+
+    async fn set_monitoring_base(
+        &self,
+        charge_point_id: &str,
+        monitoring_base: &str,
+    ) -> Result<SetMonitoringBaseResult, CommandError> {
+        CommandDispatcher::set_monitoring_base(self, charge_point_id, monitoring_base)
+            .await
+    }
+
+    async fn clear_variable_monitoring(
+        &self,
+        charge_point_id: &str,
+        ids: Vec<i32>,
+    ) -> Result<ClearVariableMonitoringResult, CommandError> {
+        CommandDispatcher::clear_variable_monitoring(self, charge_point_id, ids)
             .await
     }
 }
