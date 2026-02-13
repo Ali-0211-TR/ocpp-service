@@ -805,8 +805,9 @@ pub fn create_api_router(
         .nest("/api/v1/analytics", analytics_routes)
         // Notifications WebSocket
         .nest("/api/v1/notifications", notification_routes)
-        // Middleware (layers execute bottom-to-top: request_id → metrics → trace → cors → governor)
+        // Middleware (layers execute bottom-to-top: request_id → metrics → trace → cors → body_limit → governor)
         .layer(GovernorLayer::new(api_governor_conf))
+        .layer(axum::extract::DefaultBodyLimit::max(1_048_576)) // 1 MB — prevent DDoS via large payloads
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(metrics::http_metrics_middleware))

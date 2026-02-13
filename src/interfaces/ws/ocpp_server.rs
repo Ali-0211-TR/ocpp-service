@@ -397,15 +397,45 @@ async fn handle_connection(
         remote_addr: Some(addr.to_string()),
     }));
 
-    // Outgoing message sender task
+    // Outgoing message sender task (with WS Ping/Pong keepalive)
     let cp_id_send = charge_point_id.clone();
+    let pong_received = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let pong_received_send = pong_received.clone();
+    let pong_received_recv = pong_received.clone();
+
     let send_task = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            info!("[{}] -> {}", cp_id_send, msg);
-            metrics::counter!("ws_messages_total", "direction" => "outbound", "type" => "text").increment(1);
-            if let Err(e) = ws_sender.send(Message::Text(msg)).await {
-                error!("[{}] Send error: {}", cp_id_send, e);
-                break;
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        ping_interval.tick().await; // skip immediate first tick
+
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    match msg {
+                        Some(msg) => {
+                            info!("[{}] -> {}", cp_id_send, msg);
+                            metrics::counter!("ws_messages_total", "direction" => "outbound", "type" => "text").increment(1);
+                            if let Err(e) = ws_sender.send(Message::Text(msg)).await {
+                                error!("[{}] Send error: {}", cp_id_send, e);
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+                _ = ping_interval.tick() => {
+                    // Check if previous Pong was received
+                    if !pong_received_send.load(std::sync::atomic::Ordering::Relaxed) {
+                        warn!("[{}] No Pong received within ping interval — closing dead connection", cp_id_send);
+                        metrics::counter!("ws_connections_dead", "reason" => "pong_timeout").increment(1);
+                        break;
+                    }
+                    pong_received_send.store(false, std::sync::atomic::Ordering::Relaxed);
+                    metrics::counter!("ws_messages_total", "direction" => "outbound", "type" => "ping").increment(1);
+                    if let Err(e) = ws_sender.send(Message::Ping(vec![].into())).await {
+                        error!("[{}] Ping send error: {}", cp_id_send, e);
+                        break;
+                    }
+                }
             }
         }
     });
@@ -444,6 +474,7 @@ async fn handle_connection(
                     metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "ping").increment(1);
                 }
                 Ok(Message::Pong(_)) => {
+                    pong_received_recv.store(true, std::sync::atomic::Ordering::Relaxed);
                     info!("[{}] Pong received", cp_id_recv);
                     metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "pong").increment(1);
                 }

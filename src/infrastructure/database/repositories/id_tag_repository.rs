@@ -111,4 +111,17 @@ impl IdTagRepository for SeaOrmIdTagRepository {
             .map_err(db_err)?;
         Ok(())
     }
+
+    async fn get_parent_id_tag(&self, id_tag_value: &str) -> DomainResult<Option<String>> {
+        if id_tag_value.is_empty() {
+            return Ok(None);
+        }
+
+        let tag = id_tag::Entity::find_by_id(id_tag_value)
+            .one(&self.db)
+            .await
+            .map_err(db_err)?;
+
+        Ok(tag.and_then(|t| t.parent_id_tag))
+    }
 }

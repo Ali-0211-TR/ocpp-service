@@ -5,7 +5,7 @@ use rust_ocpp::v1_6::messages::stop_transaction::{
 };
 use rust_ocpp::v1_6::types::{AuthorizationStatus, IdTagInfo};
 use serde_json::Value;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::application::events::{Event, TransactionBilledEvent, TransactionStoppedEvent};
 use crate::application::OcppHandlerV16;
@@ -27,6 +27,62 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
     );
 
     let transaction_id = req.transaction_id;
+
+    // ── IdTag authorization check ──────────────────────────────
+    // Verify that the id_tag stopping the transaction matches the one that started it.
+    // Per OCPP 1.6 spec §4.8: StopTransaction is always processed, but id_tag_info
+    // reflects authorization status (Invalid if mismatch).
+    let id_tag_authorized = if let Some(ref stop_id_tag) = req.id_tag {
+        match handler.service.get_transaction(transaction_id).await {
+            Ok(Some(tx)) => {
+                let start_tag = &tx.id_tag;
+                if stop_id_tag == start_tag {
+                    true
+                } else {
+                    // Check parent id_tag relationship
+                    let parent_match = handler
+                        .service
+                        .get_id_tag_parent(stop_id_tag)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|parent| &parent == start_tag)
+                        .unwrap_or(false);
+
+                    if parent_match {
+                        info!(
+                            charge_point_id = handler.charge_point_id.as_str(),
+                            transaction_id,
+                            stop_id_tag,
+                            start_id_tag = start_tag.as_str(),
+                            "StopTransaction authorized via parent id_tag"
+                        );
+                        true
+                    } else {
+                        warn!(
+                            charge_point_id = handler.charge_point_id.as_str(),
+                            transaction_id,
+                            stop_id_tag,
+                            start_id_tag = start_tag.as_str(),
+                            "StopTransaction id_tag mismatch — possible unauthorized stop"
+                        );
+                        false
+                    }
+                }
+            }
+            _ => {
+                warn!(
+                    charge_point_id = handler.charge_point_id.as_str(),
+                    transaction_id,
+                    "Cannot verify id_tag — transaction not found in DB"
+                );
+                false
+            }
+        }
+    } else {
+        // No id_tag in StopTransaction — allowed per spec (e.g. local stop button)
+        true
+    };
 
     let stop_result = handler
         .service
@@ -121,9 +177,15 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
         }
     }
 
+    let auth_status = if id_tag_authorized {
+        AuthorizationStatus::Accepted
+    } else {
+        AuthorizationStatus::Invalid
+    };
+
     let response = StopTransactionResponse {
         id_tag_info: Some(IdTagInfo {
-            status: AuthorizationStatus::Accepted,
+            status: auth_status,
             expiry_date: None,
             parent_id_tag: None,
         }),

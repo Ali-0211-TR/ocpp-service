@@ -290,4 +290,14 @@ impl ChargePointService {
     pub async fn list_charge_points(&self) -> DomainResult<Vec<ChargePoint>> {
         self.repos.charge_points().find_all().await
     }
+
+    /// Look up a transaction by ID (used for id_tag authorization at StopTransaction).
+    pub async fn get_transaction(&self, transaction_id: i32) -> DomainResult<Option<Transaction>> {
+        self.repos.transactions().find_by_id(transaction_id).await
+    }
+
+    /// Get the parent id_tag for a given id_tag (used for group authorization).
+    pub async fn get_id_tag_parent(&self, id_tag: &str) -> DomainResult<Option<String>> {
+        self.repos.id_tags().get_parent_id_tag(id_tag).await
+    }
 }

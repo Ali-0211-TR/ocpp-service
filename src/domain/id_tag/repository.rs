@@ -10,4 +10,6 @@ pub trait IdTagRepository: Send + Sync {
     async fn get_auth_status(&self, id_tag: &str) -> DomainResult<Option<String>>;
     async fn add(&self, id_tag: String) -> DomainResult<()>;
     async fn remove(&self, id_tag: &str) -> DomainResult<()>;
+    /// Get the parent id_tag for a given id_tag (for group authorization).
+    async fn get_parent_id_tag(&self, id_tag: &str) -> DomainResult<Option<String>>;
 }
