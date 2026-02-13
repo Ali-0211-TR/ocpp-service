@@ -7,6 +7,7 @@ use std::sync::Arc;
 use sea_orm_migration::MigratorTrait;
 use tracing::{error, info, warn};
 
+use metrics_exporter_prometheus;
 use texnouz_ocpp::application::commands::{create_command_dispatcher, create_command_sender};
 use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
 use texnouz_ocpp::application::session::SessionRegistry;
@@ -51,6 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     info!("Starting Texnouz OCPP Central System...");
+
+    // ── Prometheus metrics recorder (must be installed before any metrics calls) ──
+    let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()
+        .expect("Failed to install Prometheus metrics recorder");
+    info!("📊 Prometheus metrics recorder installed");
 
     // ── Build sub-configs from AppConfig ───────────────────────
     let config = Config::from(&app_cfg);
@@ -165,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         service,
         billing_service,
         &app_cfg,
+        prometheus_handle,
     );
 
     // Start REST API server with graceful shutdown

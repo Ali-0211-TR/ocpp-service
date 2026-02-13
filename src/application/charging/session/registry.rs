@@ -112,6 +112,9 @@ impl SessionRegistry {
         // Clear debounce timestamp (fresh session is now active)
         self.last_disconnect.remove(charge_point_id);
 
+        // Update Prometheus gauge
+        metrics::gauge!("ocpp_connected_stations").set(self.sessions.len() as f64);
+
         match evicted {
             Some(ev) => RegisterResult::Evicted(ev),
             None => RegisterResult::New,
@@ -123,6 +126,8 @@ impl SessionRegistry {
         if self.sessions.remove(charge_point_id).is_some() {
             self.last_disconnect
                 .insert(charge_point_id.to_string(), Utc::now());
+            // Update Prometheus gauge
+            metrics::gauge!("ocpp_connected_stations").set(self.sessions.len() as f64);
             info!(charge_point_id, "Unregistered charge point session");
         } else {
             warn!(charge_point_id, "Attempted to unregister unknown session");

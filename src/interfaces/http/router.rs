@@ -32,10 +32,11 @@ use crate::infrastructure::crypto::jwt::JwtConfig;
 use crate::infrastructure::database::repositories::user_repository::UserRepository;
 use crate::interfaces::http::middleware::{auth_middleware, AuthState};
 use crate::interfaces::ws::{create_notification_state, ws_notifications_handler};
+use metrics_exporter_prometheus::PrometheusHandle;
 
 use super::modules::{
-    api_keys, auth, charge_points, commands, health, id_tags, monitoring, tariffs, transactions,
-    users,
+    api_keys, auth, charge_points, commands, health, id_tags, metrics, monitoring, tariffs,
+    transactions, users,
 };
 
 /// Unified state for all charge-point related routes (CP CRUD + commands + transactions).
@@ -286,6 +287,7 @@ pub fn create_api_router(
     charge_point_service: Arc<ChargePointService>,
     billing_service: Arc<BillingService>,
     app_cfg: &AppConfig,
+    prometheus_handle: PrometheusHandle,
 ) -> Router {
     let middleware_state = AuthState {
         jwt_config: jwt_config.clone(),
@@ -558,6 +560,14 @@ pub fn create_api_router(
         .route("/health", get(health::health_check))
         .with_state(health_state);
 
+    // Prometheus metrics route (no auth — scraped by monitoring)
+    let metrics_state = metrics::MetricsState {
+        handle: prometheus_handle,
+    };
+    let metrics_routes = Router::new()
+        .route("/metrics", get(metrics::prometheus_metrics))
+        .with_state(metrics_state);
+
     let swagger_routes = SwaggerUi::new("/docs").url("/api-doc/openapi.json", ApiDoc::openapi());
 
     // Build router
@@ -566,6 +576,8 @@ pub fn create_api_router(
         .merge(swagger_routes)
         // Health
         .merge(health_routes)
+        // Prometheus metrics
+        .merge(metrics_routes)
         // Auth
         .nest("/api/v1/auth", auth_routes)
         .nest("/api/v1/auth", auth_protected_routes)
@@ -589,6 +601,7 @@ pub fn create_api_router(
         .layer(GovernorLayer::new(api_governor_conf))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(metrics::http_metrics_middleware))
 }
 
 /// Build the CORS layer from application configuration.

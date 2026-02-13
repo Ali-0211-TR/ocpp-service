@@ -35,6 +35,23 @@ impl EventBus {
         let event_type = message.event.event_type();
         let charge_point_id = message.event.charge_point_id().map(String::from);
 
+        // Record event metrics
+        metrics::counter!("ocpp_events_total", "type" => event_type).increment(1);
+
+        // Track transaction lifecycle specifically
+        match event_type {
+            "transaction_started" => {
+                metrics::counter!("ocpp_transactions_total", "status" => "started").increment(1);
+            }
+            "transaction_stopped" => {
+                metrics::counter!("ocpp_transactions_total", "status" => "stopped").increment(1);
+            }
+            "transaction_billed" => {
+                metrics::counter!("ocpp_transactions_total", "status" => "billed").increment(1);
+            }
+            _ => {}
+        }
+
         match self.sender.send(message) {
             Ok(count) => {
                 debug!(

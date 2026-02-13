@@ -399,6 +399,7 @@ async fn handle_connection(
     let send_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             info!("[{}] -> {}", cp_id_send, msg);
+            metrics::counter!("ws_messages_total", "direction" => "outbound", "type" => "text").increment(1);
             if let Err(e) = ws_sender.send(Message::Text(msg)).await {
                 error!("[{}] Send error: {}", cp_id_send, e);
                 break;
@@ -414,6 +415,7 @@ async fn handle_connection(
             match msg {
                 Ok(Message::Text(text)) => {
                     info!("[{}] <- {}", cp_id_recv, text);
+                    metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "text").increment(1);
                     session_reg.touch(&cp_id_recv);
 
                     // Dispatch to the version-specific adapter
@@ -426,12 +428,15 @@ async fn handle_connection(
                 }
                 Ok(Message::Ping(_)) => {
                     info!("[{}] Ping received", cp_id_recv);
+                    metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "ping").increment(1);
                 }
                 Ok(Message::Pong(_)) => {
                     info!("[{}] Pong received", cp_id_recv);
+                    metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "pong").increment(1);
                 }
                 Ok(Message::Close(frame)) => {
                     info!("[{}] Close frame received: {:?}", cp_id_recv, frame);
+                    metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "close").increment(1);
                     break;
                 }
                 Ok(Message::Binary(data)) => {
@@ -440,6 +445,7 @@ async fn handle_connection(
                         cp_id_recv,
                         data.len()
                     );
+                    metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "binary").increment(1);
                 }
                 Ok(Message::Frame(_)) => {}
                 Err(e) => {

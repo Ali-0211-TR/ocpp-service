@@ -64,4 +64,8 @@ rust_decimal = "1"
 # Rate limiting
 tower_governor = { version = "0.8", features = ["axum", "tracing"] }
 
+# Metrics / Prometheus
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
 

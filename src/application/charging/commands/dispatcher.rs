@@ -20,6 +20,13 @@ pub use super::{
 pub use v201::get_variables::GetVariablesResult;
 pub use v201::set_variables::SetVariablesResult;
 
+/// Record command dispatch latency to Prometheus.
+fn record_command_latency(action: &'static str, start: std::time::Instant) {
+    let duration = start.elapsed().as_secs_f64();
+    metrics::histogram!("ocpp_command_latency_seconds", "action" => action).record(duration);
+    metrics::counter!("ocpp_commands_total", "action" => action).increment(1);
+}
+
 /// Version-aware command dispatcher.
 ///
 /// Wraps [`CommandSender`] (the low-level transport layer) and
@@ -66,9 +73,10 @@ impl CommandDispatcher {
         connector_id: Option<u32>,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching RemoteStart");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::remote_start::remote_start_transaction(
                     &self.command_sender,
@@ -88,7 +96,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("remote_start", start);
+        result
     }
 
     // ─── Remote Stop Transaction ───────────────────────────────────────
@@ -99,9 +109,10 @@ impl CommandDispatcher {
         transaction_id: i32,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching RemoteStop");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::remote_stop::remote_stop_transaction(
                     &self.command_sender,
@@ -119,7 +130,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("remote_stop", start);
+        result
     }
 
     // ─── Reset ─────────────────────────────────────────────────────────
@@ -130,16 +143,19 @@ impl CommandDispatcher {
         reset_type: ResetKind,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching Reset");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::reset::reset(&self.command_sender, charge_point_id, reset_type).await
             }
             OcppVersion::V201 | OcppVersion::V21 => {
                 v201::reset::reset(&self.command_sender, charge_point_id, reset_type, None).await
             }
-        }
+        };
+        record_command_latency("reset", start);
+        result
     }
 
     // ─── Change Availability ───────────────────────────────────────────
@@ -151,9 +167,10 @@ impl CommandDispatcher {
         availability: Availability,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching ChangeAvailability");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::change_availability::change_availability(
                     &self.command_sender,
@@ -174,7 +191,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("change_availability", start);
+        result
     }
 
     // ─── Change Configuration (v1.6 only) ──────────────────────────────
@@ -188,8 +207,9 @@ impl CommandDispatcher {
         value: String,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::change_configuration::change_configuration(
                     &self.command_sender,
@@ -203,7 +223,9 @@ impl CommandDispatcher {
                 "ChangeConfiguration is not available in OCPP 2.0.1. Use SetVariables instead."
                     .to_string(),
             )),
-        }
+        };
+        record_command_latency("change_configuration", start);
+        result
     }
 
     // ─── Get Configuration (v1.6 only) ─────────────────────────────────
@@ -216,8 +238,9 @@ impl CommandDispatcher {
         keys: Option<Vec<String>>,
     ) -> Result<ConfigurationResult, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::get_configuration::get_configuration(
                     &self.command_sender,
@@ -230,7 +253,9 @@ impl CommandDispatcher {
                 "GetConfiguration is not available in OCPP 2.0.1. Use GetVariables instead."
                     .to_string(),
             )),
-        }
+        };
+        record_command_latency("get_configuration", start);
+        result
     }
 
     // ─── Get Variables (v2.0.1 only) ───────────────────────────────────
@@ -242,8 +267,9 @@ impl CommandDispatcher {
         variables: Vec<(String, String)>,
     ) -> Result<GetVariablesResult, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
                 "GetVariables is not available in OCPP 1.6. Use GetConfiguration instead."
                     .to_string(),
@@ -256,7 +282,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("get_variables", start);
+        result
     }
 
     // ─── Set Variables (v2.0.1 only) ───────────────────────────────────
@@ -268,8 +296,9 @@ impl CommandDispatcher {
         variables: Vec<(String, String, String)>,
     ) -> Result<SetVariablesResult, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
                 "SetVariables is not available in OCPP 1.6. Use ChangeConfiguration instead."
                     .to_string(),
@@ -282,7 +311,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("set_variables", start);
+        result
     }
 
     // ─── Clear Cache ───────────────────────────────────────────────────
@@ -292,16 +323,19 @@ impl CommandDispatcher {
         charge_point_id: &str,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching ClearCache");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::clear_cache::clear_cache(&self.command_sender, charge_point_id).await
             }
             OcppVersion::V201 | OcppVersion::V21 => {
                 v201::clear_cache::clear_cache(&self.command_sender, charge_point_id).await
             }
-        }
+        };
+        record_command_latency("clear_cache", start);
+        result
     }
 
     // ─── Data Transfer ─────────────────────────────────────────────────
@@ -314,9 +348,10 @@ impl CommandDispatcher {
         data: Option<String>,
     ) -> Result<DataTransferResult, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching DataTransfer");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::data_transfer::data_transfer(
                     &self.command_sender,
@@ -337,7 +372,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("data_transfer", start);
+        result
     }
 
     // ─── Get Local List Version ────────────────────────────────────────
@@ -347,9 +384,10 @@ impl CommandDispatcher {
         charge_point_id: &str,
     ) -> Result<i32, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching GetLocalListVersion");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::get_local_list_version::get_local_list_version(
                     &self.command_sender,
@@ -364,7 +402,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("get_local_list_version", start);
+        result
     }
 
     // ─── Trigger Message ───────────────────────────────────────────────
@@ -376,9 +416,10 @@ impl CommandDispatcher {
         connector_id: Option<u32>,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching TriggerMessage");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::trigger_message::trigger_message(
                     &self.command_sender,
@@ -398,7 +439,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("trigger_message", start);
+        result
     }
 
     // ─── Unlock Connector ──────────────────────────────────────────────
@@ -409,9 +452,10 @@ impl CommandDispatcher {
         connector_id: u32,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
         info!(%version, "Dispatching UnlockConnector");
 
-        match version {
+        let result = match version {
             OcppVersion::V16 => {
                 v16::unlock_connector::unlock_connector(
                     &self.command_sender,
@@ -430,7 +474,9 @@ impl CommandDispatcher {
                 )
                 .await
             }
-        }
+        };
+        record_command_latency("unlock_connector", start);
+        result
     }
 }
 
