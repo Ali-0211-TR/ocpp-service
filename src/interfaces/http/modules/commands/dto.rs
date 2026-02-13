@@ -336,3 +336,22 @@ pub struct GetDiagnosticsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
 }
+
+// ─── Device Reports (v2.0.1 only) ─────────────────────────────────────
+
+/// GetBaseReport request body.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct GetBaseReportRequest {
+    /// Report type: "ConfigurationInventory", "FullInventory", or "SummaryInventory".
+    #[validate(length(min = 1, message = "report_base is required"))]
+    pub report_base: String,
+}
+
+/// GetBaseReport response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GetBaseReportResponse {
+    pub status: String,
+    /// The request_id used to track the report.
+    /// Use GET /charge-points/{id}/report?request_id={request_id} to retrieve parts.
+    pub request_id: i32,
+}

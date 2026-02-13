@@ -20,6 +20,7 @@ pub use super::{
 };
 pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
 pub use v201::get_log::GetLogResult;
+pub use v201::get_base_report::GetBaseReportResult;
 pub use v201::get_variables::GetVariablesResult;
 pub use v201::set_variables::SetVariablesResult;
 
@@ -858,6 +859,39 @@ impl CommandDispatcher {
         record_command_latency("get_diagnostics", start);
         result
     }
+
+    // ─── GetBaseReport (v2.0.1 only) ──────────────────────────────────
+
+    /// Request a base report from a v2.0.1 charge point.
+    ///
+    /// v1.6 charge points do not support this; returns an error.
+    pub async fn get_base_report(
+        &self,
+        charge_point_id: &str,
+        request_id: i32,
+        report_base: &str,
+    ) -> Result<GetBaseReportResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching GetBaseReport");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::SendFailed(
+                "GetBaseReport is not supported for OCPP 1.6 charge points".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::get_base_report::get_base_report(
+                    &self.command_sender,
+                    charge_point_id,
+                    request_id,
+                    report_base,
+                )
+                .await
+            }
+        };
+        record_command_latency("get_base_report", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -1099,5 +1133,15 @@ impl OcppOutboundPort for CommandDispatcher {
             log_type,
         )
         .await
+    }
+
+    async fn get_base_report(
+        &self,
+        charge_point_id: &str,
+        request_id: i32,
+        report_base: &str,
+    ) -> Result<GetBaseReportResult, CommandError> {
+        CommandDispatcher::get_base_report(self, charge_point_id, request_id, report_base)
+            .await
     }
 }

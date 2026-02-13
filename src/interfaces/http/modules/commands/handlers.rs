@@ -12,7 +12,8 @@ use tracing::{error, info, warn};
 
 use super::dto::{
     ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
-    CommandResponse, DataTransferRequest, DataTransferResponse, GetCompositeScheduleRequest,
+    CommandResponse, DataTransferRequest, DataTransferResponse, GetBaseReportRequest,
+    GetBaseReportResponse, GetCompositeScheduleRequest,
     GetCompositeScheduleResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
     GetVariablesRequest, GetVariablesResponse,
     LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest, ResetRequest,
@@ -34,6 +35,10 @@ use crate::application::BillingService;
 use crate::domain::{ChargingLimitType, RepositoryProvider};
 use crate::interfaces::http::common::ApiResponse;
 
+use crate::application::charging::services::device_report::{
+    DeviceReport, SharedDeviceReportStore,
+};
+
 /// Command handler state
 #[derive(Clone)]
 pub struct CommandAppState {
@@ -43,6 +48,7 @@ pub struct CommandAppState {
     pub event_bus: SharedEventBus,
     pub charge_point_service: Arc<ChargePointService>,
     pub billing_service: Arc<BillingService>,
+    pub report_store: SharedDeviceReportStore,
 }
 
 #[utoipa::path(
@@ -1306,4 +1312,114 @@ pub async fn get_diagnostics(
             Json(ApiResponse::error(e.to_string())),
         )),
     }
+}
+
+// ─── Device Reports ────────────────────────────────────────────────────
+
+/// Request a base report from a v2.0.1 charge point.
+///
+/// The charge point will asynchronously send NotifyReport messages.
+/// Use GET /charge-points/{id}/report to retrieve the assembled report.
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/report",
+    tag = "Commands",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = GetBaseReportRequest,
+    responses(
+        (status = 200, description = "Report request accepted", body = ApiResponse<GetBaseReportResponse>),
+    )
+)]
+pub async fn request_base_report(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<GetBaseReportRequest>,
+) -> Result<
+    Json<ApiResponse<GetBaseReportResponse>>,
+    (StatusCode, Json<ApiResponse<GetBaseReportResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    // Generate a unique request_id
+    let request_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i32;
+
+    // Initialize the report store slot before sending
+    state
+        .report_store
+        .init_report(&charge_point_id, request_id);
+
+    match state
+        .command_dispatcher
+        .get_base_report(&charge_point_id, request_id, &request.report_base)
+        .await
+    {
+        Ok(result) => Ok(Json(ApiResponse::success(GetBaseReportResponse {
+            status: result.status,
+            request_id,
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+/// Retrieve the latest device report for a charge point.
+///
+/// Reports are assembled from NotifyReport messages received after a GetBaseReport command.
+#[utoipa::path(
+    get,
+    path = "/api/v1/charge-points/{charge_point_id}/report",
+    tag = "Commands",
+    params(
+        ("charge_point_id" = String, Path, description = "Charge point ID"),
+        ("request_id" = Option<i32>, Query, description = "Specific report request_id (optional, defaults to latest)"),
+    ),
+    responses(
+        (status = 200, description = "Device report", body = ApiResponse<DeviceReport>),
+    )
+)]
+pub async fn get_device_report(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Query(params): Query<ReportQueryParams>,
+) -> Result<
+    Json<ApiResponse<crate::application::charging::services::device_report::DeviceReport>>,
+    (
+        StatusCode,
+        Json<ApiResponse<crate::application::charging::services::device_report::DeviceReport>>,
+    ),
+> {
+    let report = match params.request_id {
+        Some(rid) => state.report_store.get_report(&charge_point_id, rid),
+        None => state.report_store.get_latest_report(&charge_point_id),
+    };
+
+    match report {
+        Some(r) => Ok(Json(ApiResponse::success(r))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "No device report found for charge point '{}'",
+                charge_point_id
+            ))),
+        )),
+    }
+}
+
+/// Query parameters for report retrieval.
+#[derive(Debug, serde::Deserialize)]
+pub struct ReportQueryParams {
+    pub request_id: Option<i32>,
 }

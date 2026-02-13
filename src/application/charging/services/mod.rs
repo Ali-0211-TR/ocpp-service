@@ -1,5 +1,6 @@
 //! Application services
 
+pub mod device_report;
 mod billing;
 mod charge_point;
 mod heartbeat_monitor;

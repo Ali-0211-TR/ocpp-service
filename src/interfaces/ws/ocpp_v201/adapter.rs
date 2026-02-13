@@ -13,6 +13,7 @@ use crate::application::ports::{OcppAdapterFactory, OcppInboundPort};
 use crate::application::OcppHandlerV201;
 use crate::application::{BillingService, ChargePointService};
 use crate::application::{CommandSender, SharedCommandSender};
+use crate::application::charging::services::device_report::SharedDeviceReportStore;
 use crate::domain::OcppVersion;
 
 // ── V201InboundAdapter ─────────────────────────────────────────
@@ -33,6 +34,7 @@ impl V201InboundAdapter {
         billing_service: Arc<BillingService>,
         command_sender: Arc<CommandSender>,
         event_bus: SharedEventBus,
+        report_store: SharedDeviceReportStore,
     ) -> Self {
         let handler = Arc::new(OcppHandlerV201::new(
             charge_point_id.clone(),
@@ -40,6 +42,7 @@ impl V201InboundAdapter {
             billing_service,
             command_sender,
             event_bus,
+            report_store,
         ));
         Self {
             handler,
@@ -74,6 +77,7 @@ pub struct V201AdapterFactory {
     billing_service: Arc<BillingService>,
     command_sender: SharedCommandSender,
     event_bus: SharedEventBus,
+    report_store: SharedDeviceReportStore,
 }
 
 impl V201AdapterFactory {
@@ -82,12 +86,14 @@ impl V201AdapterFactory {
         billing_service: Arc<BillingService>,
         command_sender: SharedCommandSender,
         event_bus: SharedEventBus,
+        report_store: SharedDeviceReportStore,
     ) -> Self {
         Self {
             service,
             billing_service,
             command_sender,
             event_bus,
+            report_store,
         }
     }
 }
@@ -100,6 +106,7 @@ impl OcppAdapterFactory for V201AdapterFactory {
             self.billing_service.clone(),
             self.command_sender.clone(),
             self.event_bus.clone(),
+            self.report_store.clone(),
         ))
     }
 

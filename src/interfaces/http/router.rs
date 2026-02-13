@@ -25,6 +25,7 @@ use crate::application::identity::UserService;
 use crate::application::events::SharedEventBus;
 use crate::application::SharedCommandDispatcher;
 use crate::application::SharedSessionRegistry;
+use crate::application::charging::services::device_report::SharedDeviceReportStore;
 use crate::application::{ChargePointService, HeartbeatMonitor};
 use crate::application::BillingService;
 use crate::domain::RepositoryProvider;
@@ -50,6 +51,7 @@ pub struct ChargePointUnifiedState {
     pub auth: AuthState,
     pub charge_point_service: Arc<ChargePointService>,
     pub billing_service: Arc<BillingService>,
+    pub report_store: SharedDeviceReportStore,
 }
 
 // -- FromRef implementations so each handler keeps its own State<T> extractor --
@@ -72,6 +74,7 @@ impl FromRef<ChargePointUnifiedState> for commands::CommandAppState {
             event_bus: s.event_bus.clone(),
             charge_point_service: Arc::clone(&s.charge_point_service),
             billing_service: Arc::clone(&s.billing_service),
+            report_store: s.report_store.clone(),
         }
     }
 }
@@ -200,6 +203,9 @@ impl Modify for SecurityAddon {
         // Firmware Management
         commands::update_firmware,
         commands::get_diagnostics,
+        // Device Reports
+        commands::request_base_report,
+        commands::get_device_report,
         // Transactions
         transactions::list_all_transactions,
         transactions::list_transactions_for_charge_point,
@@ -286,6 +292,12 @@ impl Modify for SecurityAddon {
             commands::UpdateFirmwareResponse,
             commands::GetDiagnosticsRequest,
             commands::GetDiagnosticsResponse,
+            commands::GetBaseReportRequest,
+            commands::GetBaseReportResponse,
+            // Device Report types
+            crate::application::charging::services::device_report::DeviceReport,
+            crate::application::charging::services::device_report::ReportVariable,
+            crate::application::charging::services::device_report::VariableAttributeEntry,
             // Reservations
             reservations::CreateReservationRequest,
             reservations::CreateReservationResponse,
@@ -332,6 +344,7 @@ pub fn create_api_router(
     billing_service: Arc<BillingService>,
     app_cfg: &AppConfig,
     prometheus_handle: PrometheusHandle,
+    report_store: SharedDeviceReportStore,
 ) -> Router {
     let middleware_state = AuthState {
         jwt_config: jwt_config.clone(),
@@ -347,6 +360,7 @@ pub fn create_api_router(
         auth: middleware_state.clone(),
         charge_point_service,
         billing_service: billing_service.clone(),
+        report_store,
     };
 
     // A SINGLE router for every /api/v1/charge-points/* route.
@@ -461,6 +475,11 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/diagnostics",
             post(commands::get_diagnostics),
+        )
+        // --- Device Reports (v2.0.1) ---
+        .route(
+            "/{charge_point_id}/report",
+            post(commands::request_base_report).get(commands::get_device_report),
         )
         // auth middleware + unified state
         .layer(middleware::from_fn_with_state(

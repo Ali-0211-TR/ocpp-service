@@ -12,6 +12,7 @@ use async_trait::async_trait;
 
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
 use crate::application::charging::commands::dispatcher::GetDiagnosticsResult;
+use crate::application::charging::commands::dispatcher::GetBaseReportResult;
 use crate::application::charging::commands::{
     Availability, CommandError, CompositeScheduleResult, ConfigurationResult, DataTransferResult,
     LocalAuthEntry, ResetKind, TriggerType,
@@ -272,4 +273,14 @@ pub trait OcppOutboundPort: Send + Sync {
         stop_time: Option<chrono::DateTime<chrono::Utc>>,
         log_type: Option<&str>,
     ) -> Result<GetDiagnosticsResult, CommandError>;
+
+    // ─── Device Reports ────────────────────────────────────────────
+
+    /// GetBaseReport (v2.0.1 only) — request device configuration/inventory report.
+    async fn get_base_report(
+        &self,
+        charge_point_id: &str,
+        request_id: i32,
+        report_base: &str,
+    ) -> Result<GetBaseReportResult, CommandError>;
 }

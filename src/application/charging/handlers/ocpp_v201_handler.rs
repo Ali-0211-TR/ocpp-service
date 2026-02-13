@@ -16,6 +16,8 @@ use crate::{
     SharedEventBus,
 };
 
+use crate::application::charging::services::device_report::SharedDeviceReportStore;
+
 /// Handler for OCPP 2.0.1 messages
 pub struct OcppHandlerV201 {
     pub charge_point_id: String,
@@ -23,6 +25,7 @@ pub struct OcppHandlerV201 {
     pub billing_service: Arc<BillingService>,
     pub command_sender: Arc<CommandSender>,
     pub event_bus: SharedEventBus,
+    pub report_store: SharedDeviceReportStore,
 }
 
 impl OcppHandlerV201 {
@@ -32,6 +35,7 @@ impl OcppHandlerV201 {
         billing_service: Arc<BillingService>,
         command_sender: Arc<CommandSender>,
         event_bus: SharedEventBus,
+        report_store: SharedDeviceReportStore,
     ) -> Self {
         Self {
             charge_point_id: charge_point_id.into(),
@@ -39,6 +43,7 @@ impl OcppHandlerV201 {
             billing_service,
             command_sender,
             event_bus,
+            report_store,
         }
     }
 

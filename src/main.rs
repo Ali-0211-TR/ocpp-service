@@ -12,6 +12,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use metrics_exporter_prometheus;
 use texnouz_ocpp::application::commands::{create_command_dispatcher, create_command_sender};
 use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
+use texnouz_ocpp::application::charging::services::device_report::DeviceReportStore;
 use texnouz_ocpp::application::session::SessionRegistry;
 use texnouz_ocpp::config::AppConfig;
 use texnouz_ocpp::domain::OcppVersion;
@@ -139,11 +140,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     protocol_adapters.register(OcppVersion::V16, v16_factory);
 
     // ── OCPP 2.0.1 adapter ────────────────────────────────────
+    let device_report_store = Arc::new(DeviceReportStore::new());
+
     let v201_factory = Arc::new(V201AdapterFactory::new(
         service.clone(),
         billing_service.clone(),
         command_sender.clone(),
         event_bus.clone(),
+        device_report_store.clone(),
     ));
     protocol_adapters.register(OcppVersion::V201, v201_factory);
     // Future: protocol_adapters.register(OcppVersion::V21,  v21_factory);
@@ -196,6 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         billing_service,
         &app_cfg,
         prometheus_handle,
+        device_report_store,
     );
 
     // Start REST API server with graceful shutdown

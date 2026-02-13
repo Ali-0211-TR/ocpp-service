@@ -15,6 +15,7 @@ mod handle_data_transfer;
 mod handle_firmware_status_notification;
 mod handle_heartbeat;
 mod handle_meter_values;
+mod handle_notify_report;
 mod handle_security_event_notification;
 mod handle_status_notification;
 mod handle_transaction_event;
@@ -25,6 +26,7 @@ pub use handle_data_transfer::handle_data_transfer;
 pub use handle_firmware_status_notification::handle_firmware_status_notification;
 pub use handle_heartbeat::handle_heartbeat;
 pub use handle_meter_values::handle_meter_values;
+pub use handle_notify_report::handle_notify_report;
 pub use handle_security_event_notification::handle_security_event_notification;
 pub use handle_status_notification::handle_status_notification;
 pub use handle_transaction_event::handle_transaction_event;
@@ -48,6 +50,7 @@ pub async fn v201_action_matcher(
         "FirmwareStatusNotification" => handle_firmware_status_notification(handler, payload).await,
         "Heartbeat" => handle_heartbeat(handler, payload).await,
         "MeterValues" => handle_meter_values(handler, payload).await,
+        "NotifyReport" => handle_notify_report(handler, payload).await,
         "SecurityEventNotification" => handle_security_event_notification(handler, payload).await,
         "StatusNotification" => handle_status_notification(handler, payload).await,
         "TransactionEvent" => handle_transaction_event(handler, payload).await,
