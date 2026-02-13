@@ -15,8 +15,8 @@ use crate::domain::OcppVersion;
 
 // Re-export common types used by the dispatcher's public API
 pub use super::{
-    Availability, ConfigurationResult, DataTransferResult, KeyValue, LocalAuthEntry, ResetKind,
-    TriggerType,
+    Availability, CompositeScheduleResult, ConfigurationResult, DataTransferResult, KeyValue,
+    LocalAuthEntry, ResetKind, TriggerType,
 };
 pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
 pub use v201::get_variables::GetVariablesResult;
@@ -523,12 +523,10 @@ impl CommandDispatcher {
         result
     }
 
-    // ─── Clear Charging Profile (v2.0.1 only) ─────────────────────────
+    // ─── Clear Charging Profile (v1.6 + v2.0.1) ────────────────────
 
-    /// ClearChargingProfile — v2.0.1 only.
-    ///
-    /// Removes one or more charging profiles from the station by id, EVSE,
-    /// purpose, or stack level. v1.6 does not support this command.
+    /// ClearChargingProfile — removes one or more charging profiles from the station
+    /// by id, connector/EVSE, purpose, or stack level.
     pub async fn clear_charging_profile(
         &self,
         charge_point_id: &str,
@@ -539,9 +537,14 @@ impl CommandDispatcher {
         info!(%version, "Dispatching ClearChargingProfile");
 
         let result = match version {
-            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
-                "ClearChargingProfile is not available in OCPP 1.6.".to_string(),
-            )),
+            OcppVersion::V16 => {
+                v16::clear_charging_profile::clear_charging_profile(
+                    &self.command_sender,
+                    charge_point_id,
+                    criteria,
+                )
+                .await
+            }
             OcppVersion::V201 | OcppVersion::V21 => {
                 v201::clear_charging_profile::clear_charging_profile(
                     &self.command_sender,
@@ -555,36 +558,103 @@ impl CommandDispatcher {
         result
     }
 
-    // ─── Set Charging Profile (v2.0.1 only) ───────────────────────────
+    // ─── Set Charging Profile (v1.6 + v2.0.1) ──────────────────────
 
-    /// SetChargingProfile — v2.0.1 only.
+    /// SetChargingProfile — sends a charging profile to the charge point.
     ///
-    /// Sends a full `ChargingProfileType` to the station for a given EVSE.
+    /// For v2.0.1: `evse_id` identifies the EVSE (0 = station-wide).
+    /// For v1.6: `evse_id` maps to `connector_id`.
+    ///
+    /// The `charging_profile_json` is version-specific raw JSON.
     pub async fn set_charging_profile(
         &self,
         charge_point_id: &str,
         evse_id: i32,
-        charging_profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType,
+        charging_profile_json: serde_json::Value,
     ) -> Result<String, CommandError> {
         let version = self.resolve_version(charge_point_id)?;
         let start = std::time::Instant::now();
         info!(%version, "Dispatching SetChargingProfile");
 
         let result = match version {
-            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
-                "SetChargingProfile is not available in OCPP 1.6.".to_string(),
-            )),
+            OcppVersion::V16 => {
+                let profile: rust_ocpp::v1_6::types::ChargingProfile =
+                    serde_json::from_value(charging_profile_json).map_err(|e| {
+                        CommandError::InvalidResponse(format!(
+                            "Invalid v1.6 ChargingProfile JSON: {}",
+                            e
+                        ))
+                    })?;
+                v16::set_charging_profile::set_charging_profile(
+                    &self.command_sender,
+                    charge_point_id,
+                    evse_id,
+                    profile,
+                )
+                .await
+            }
             OcppVersion::V201 | OcppVersion::V21 => {
+                let profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType =
+                    serde_json::from_value(charging_profile_json).map_err(|e| {
+                        CommandError::InvalidResponse(format!(
+                            "Invalid v2.0.1 ChargingProfile JSON: {}",
+                            e
+                        ))
+                    })?;
                 v201::set_charging_profile::set_charging_profile(
                     &self.command_sender,
                     charge_point_id,
                     evse_id,
-                    charging_profile,
+                    profile,
                 )
                 .await
             }
         };
         record_command_latency("set_charging_profile", start);
+        result
+    }
+
+    // ─── Get Composite Schedule (v1.6 + v2.0.1) ──────────────────────
+
+    /// GetCompositeSchedule — request the composite charging schedule.
+    ///
+    /// `connector_or_evse_id` maps to `connector_id` (v1.6) or `evse_id` (v2.0.1).
+    /// `duration` — schedule length in seconds.
+    /// `charging_rate_unit` — optional `"W"` or `"A"`.
+    pub async fn get_composite_schedule(
+        &self,
+        charge_point_id: &str,
+        connector_or_evse_id: i32,
+        duration: i32,
+        charging_rate_unit: Option<&str>,
+    ) -> Result<CompositeScheduleResult, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching GetCompositeSchedule");
+
+        let result = match version {
+            OcppVersion::V16 => {
+                v16::get_composite_schedule::get_composite_schedule(
+                    &self.command_sender,
+                    charge_point_id,
+                    connector_or_evse_id,
+                    duration,
+                    charging_rate_unit,
+                )
+                .await
+            }
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::get_composite_schedule::get_composite_schedule(
+                    &self.command_sender,
+                    charge_point_id,
+                    connector_or_evse_id,
+                    duration,
+                    charging_rate_unit,
+                )
+                .await
+            }
+        };
+        record_command_latency("get_composite_schedule", start);
         result
     }
 }
@@ -709,14 +779,25 @@ impl OcppOutboundPort for CommandDispatcher {
         evse_id: i32,
         charging_profile_json: serde_json::Value,
     ) -> Result<String, CommandError> {
-        let profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType =
-            serde_json::from_value(charging_profile_json).map_err(|e| {
-                CommandError::InvalidResponse(format!(
-                    "Invalid ChargingProfile JSON: {}",
-                    e
-                ))
-            })?;
-        CommandDispatcher::set_charging_profile(self, charge_point_id, evse_id, profile).await
+        CommandDispatcher::set_charging_profile(self, charge_point_id, evse_id, charging_profile_json)
+            .await
+    }
+
+    async fn get_composite_schedule(
+        &self,
+        charge_point_id: &str,
+        connector_or_evse_id: i32,
+        duration: i32,
+        charging_rate_unit: Option<&str>,
+    ) -> Result<CompositeScheduleResult, CommandError> {
+        CommandDispatcher::get_composite_schedule(
+            self,
+            charge_point_id,
+            connector_or_evse_id,
+            duration,
+            charging_rate_unit,
+        )
+        .await
     }
 
     async fn data_transfer(

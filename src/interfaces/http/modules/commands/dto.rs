@@ -241,14 +241,42 @@ pub struct ClearChargingProfileRequest {
     pub stack_level: Option<i32>,
 }
 
-/// SetChargingProfile request body (v2.0.1 only).
+/// SetChargingProfile request body (v1.6 + v2.0.1).
 ///
 /// The `charging_profile` field accepts a raw JSON object matching the
-/// OCPP 2.0.1 `ChargingProfileType` schema.
+/// OCPP version-specific ChargingProfile schema.
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct SetChargingProfileRequest {
-    /// EVSE ID to apply the profile to (0 = station-wide).
+    /// EVSE/Connector ID (0 = station-wide).
     pub evse_id: i32,
-    /// Full ChargingProfile as a JSON object (OCPP 2.0.1 ChargingProfileType).
+    /// Full ChargingProfile as a JSON object (OCPP 1.6 or 2.0.1 schema).
     pub charging_profile: serde_json::Value,
+}
+
+/// GetCompositeSchedule request body.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct GetCompositeScheduleRequest {
+    /// Connector/EVSE ID (0 = grid connection).
+    pub connector_id: i32,
+    /// Duration in seconds for the requested schedule.
+    #[validate(range(min = 1, message = "duration must be positive"))]
+    pub duration: i32,
+    /// Optional charging rate unit: "W" (Watts) or "A" (Amps).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charging_rate_unit: Option<String>,
+}
+
+/// GetCompositeSchedule response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GetCompositeScheduleResponse {
+    pub status: String,
+    /// The composite schedule as a JSON object (version-specific).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<serde_json::Value>,
+    /// Connector ID (v1.6 only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector_id: Option<i32>,
+    /// Schedule start time as ISO 8601 string (v1.6 only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule_start: Option<String>,
 }

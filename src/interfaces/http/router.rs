@@ -184,6 +184,9 @@ impl Modify for SecurityAddon {
         commands::send_local_list,
         commands::clear_auth_cache,
         commands::data_transfer_handler,
+        commands::clear_charging_profile,
+        commands::set_charging_profile,
+        commands::get_composite_schedule,
         // Transactions
         transactions::list_all_transactions,
         transactions::list_transactions_for_charge_point,
@@ -257,6 +260,10 @@ impl Modify for SecurityAddon {
             commands::CommandResponse,
             commands::ConfigValue,
             commands::ConfigurationResponse,
+            commands::SetChargingProfileRequest,
+            commands::ClearChargingProfileRequest,
+            commands::GetCompositeScheduleRequest,
+            commands::GetCompositeScheduleResponse,
         )
     ),
     modifiers(&SecurityAddon),
@@ -383,6 +390,19 @@ pub fn create_api_router(
             "/{charge_point_id}/data-transfer",
             post(commands::data_transfer_handler),
         )
+        // --- Smart Charging (v1.6 + v2.0.1) ---
+        .route(
+            "/{charge_point_id}/charging-profile/clear",
+            post(commands::clear_charging_profile),
+        )
+        .route(
+            "/{charge_point_id}/charging-profile/set",
+            post(commands::set_charging_profile),
+        )
+        .route(
+            "/{charge_point_id}/composite-schedule",
+            post(commands::get_composite_schedule),
+        )
         // --- v2.0.1-specific commands ---
         .route(
             "/{charge_point_id}/variables/get",
@@ -391,14 +411,6 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/variables/set",
             post(commands::set_variables),
-        )
-        .route(
-            "/{charge_point_id}/charging-profile/clear",
-            post(commands::clear_charging_profile),
-        )
-        .route(
-            "/{charge_point_id}/charging-profile/set",
-            post(commands::set_charging_profile),
         )
         // --- Transactions under CP (uses State<TransactionAppState> via FromRef) ---
         .route(

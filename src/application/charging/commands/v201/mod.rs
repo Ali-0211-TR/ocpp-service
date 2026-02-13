@@ -7,6 +7,7 @@ pub mod change_availability;
 pub mod clear_cache;
 pub mod clear_charging_profile;
 pub mod data_transfer;
+pub mod get_composite_schedule;
 pub mod get_local_list_version;
 pub mod get_variables;
 pub mod remote_start;

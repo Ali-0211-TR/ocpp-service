@@ -100,6 +100,19 @@ pub struct LocalAuthEntry {
     pub parent_id_tag: Option<String>,
 }
 
+/// Result of a GetCompositeSchedule command (version-agnostic).
+#[derive(Debug)]
+pub struct CompositeScheduleResult {
+    /// Status: "Accepted", "Rejected", etc.
+    pub status: String,
+    /// The composite schedule as raw JSON (version-specific structure).
+    pub schedule: Option<serde_json::Value>,
+    /// Connector ID (v1.6 only).
+    pub connector_id: Option<i32>,
+    /// Schedule start time as ISO 8601 string (v1.6 only).
+    pub schedule_start: Option<String>,
+}
+
 // ── Re-exports ─────────────────────────────────────────────────────
 
 pub use dispatcher::{

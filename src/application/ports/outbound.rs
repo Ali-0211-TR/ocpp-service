@@ -12,8 +12,8 @@ use async_trait::async_trait;
 
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
 use crate::application::charging::commands::{
-    Availability, CommandError, ConfigurationResult, DataTransferResult, LocalAuthEntry, ResetKind,
-    TriggerType,
+    Availability, CommandError, CompositeScheduleResult, ConfigurationResult, DataTransferResult,
+    LocalAuthEntry, ResetKind, TriggerType,
 };
 use crate::application::charging::commands::dispatcher::{
     GetVariablesResult, SetVariablesResult,
@@ -164,25 +164,37 @@ pub trait OcppOutboundPort: Send + Sync {
         variables: Vec<(String, String, String)>,
     ) -> Result<SetVariablesResult, CommandError>;
 
-    // ── Charging profiles (v2.0.1 only) ────────────────────────
+    // ── Charging profiles (v1.6 + v2.0.1) ───────────────────────
 
-    /// ClearChargingProfile — v2.0.1 only. Returns `UnsupportedVersion` for v1.6.
+    /// ClearChargingProfile — removes one or more charging profiles.
     async fn clear_charging_profile(
         &self,
         charge_point_id: &str,
         criteria: ClearChargingProfileCriteria,
     ) -> Result<String, CommandError>;
 
-    /// SetChargingProfile — v2.0.1 only. Returns `UnsupportedVersion` for v1.6.
+    /// SetChargingProfile — sends a charging profile to the charge point.
     ///
     /// Accepts the profile as a raw `serde_json::Value` so callers don't need
-    /// to depend on `rust_ocpp` types directly.
+    /// to depend on `rust_ocpp` types directly. Version-specific deserialization
+    /// happens inside the dispatcher.
     async fn set_charging_profile(
         &self,
         charge_point_id: &str,
         evse_id: i32,
         charging_profile_json: serde_json::Value,
     ) -> Result<String, CommandError>;
+
+    /// GetCompositeSchedule — request the composite charging schedule.
+    ///
+    /// `connector_or_evse_id` maps to `connector_id` (v1.6) or `evse_id` (v2.0.1).
+    async fn get_composite_schedule(
+        &self,
+        charge_point_id: &str,
+        connector_or_evse_id: i32,
+        duration: i32,
+        charging_rate_unit: Option<&str>,
+    ) -> Result<CompositeScheduleResult, CommandError>;
 
     // ── Data transfer ──────────────────────────────────────────
 

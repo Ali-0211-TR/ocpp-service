@@ -12,11 +12,12 @@ use tracing::{error, info, warn};
 
 use super::dto::{
     ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
-    CommandResponse, DataTransferRequest, DataTransferResponse, GetVariablesRequest,
-    GetVariablesResponse, LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest,
-    ResetRequest, SendLocalListRequest, SendLocalListResponse, SetChargingProfileRequest,
-    SetVariablesRequest, SetVariablesResponse, TriggerMessageRequest, UnlockConnectorRequest,
-    VariableResultDto, SetVariableStatusDto,
+    CommandResponse, DataTransferRequest, DataTransferResponse, GetCompositeScheduleRequest,
+    GetCompositeScheduleResponse, GetVariablesRequest, GetVariablesResponse,
+    LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest, ResetRequest,
+    SendLocalListRequest, SendLocalListResponse, SetChargingProfileRequest, SetVariablesRequest,
+    SetVariablesResponse, TriggerMessageRequest, UnlockConnectorRequest, VariableResultDto,
+    SetVariableStatusDto,
 };
 use crate::application::events::{
     Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
@@ -779,6 +780,61 @@ pub async fn send_local_list(
 
 #[utoipa::path(
     post,
+    path = "/api/v1/charge-points/{charge_point_id}/composite-schedule",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = GetCompositeScheduleRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<GetCompositeScheduleResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn get_composite_schedule(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<GetCompositeScheduleRequest>,
+) -> Result<
+    Json<ApiResponse<GetCompositeScheduleResponse>>,
+    (StatusCode, Json<ApiResponse<GetCompositeScheduleResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    match state
+        .command_dispatcher
+        .get_composite_schedule(
+            &charge_point_id,
+            request.connector_id,
+            request.duration,
+            request.charging_rate_unit.as_deref(),
+        )
+        .await
+    {
+        Ok(result) => {
+            Ok(Json(ApiResponse::success(GetCompositeScheduleResponse {
+                status: result.status,
+                schedule: result.schedule,
+                connector_id: result.connector_id,
+                schedule_start: result.schedule_start,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
     path = "/api/v1/charge-points/{charge_point_id}/clear-cache",
     tag = "Commands",
     security(("bearer_auth" = []), ("api_key" = [])),
@@ -995,7 +1051,7 @@ pub async fn set_variables(
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/charging-profile/clear",
-    tag = "Commands (v2.0.1)",
+    tag = "Commands",
     params(("charge_point_id" = String, Path, description = "Charge point ID")),
     security(("bearer_auth" = []), ("api_key" = [])),
     request_body = ClearChargingProfileRequest,
@@ -1052,13 +1108,14 @@ pub async fn clear_charging_profile(
 #[utoipa::path(
     post,
     path = "/api/v1/charge-points/{charge_point_id}/charging-profile/set",
-    tag = "Commands (v2.0.1)",
+    tag = "Commands",
     params(("charge_point_id" = String, Path, description = "Charge point ID")),
     security(("bearer_auth" = []), ("api_key" = [])),
     request_body = SetChargingProfileRequest,
     responses(
         (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
-        (status = 404, description = "Not connected")
+        (status = 404, description = "Not connected"),
+        (status = 400, description = "Invalid charging profile JSON")
     )
 )]
 pub async fn set_charging_profile(
@@ -1076,24 +1133,12 @@ pub async fn set_charging_profile(
         ));
     }
 
-    // Deserialize the raw JSON into the typed ChargingProfileType
-    let charging_profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType =
-        serde_json::from_value(request.charging_profile).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ApiResponse::error(format!(
-                    "Invalid ChargingProfile JSON: {}",
-                    e
-                ))),
-            )
-        })?;
-
     match state
         .command_dispatcher
         .set_charging_profile(
             &charge_point_id,
             request.evse_id,
-            charging_profile,
+            request.charging_profile,
         )
         .await
     {
