@@ -190,3 +190,140 @@ impl Default for SessionRegistry {
         Self::new()
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    fn make_sender() -> mpsc::UnboundedSender<String> {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        tx
+    }
+
+    #[test]
+    fn register_new_session() {
+        let reg = SessionRegistry::new();
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        assert!(matches!(result, RegisterResult::New));
+        assert_eq!(reg.count(), 1);
+        assert!(reg.is_connected("CP001"));
+    }
+
+    #[test]
+    fn register_evicts_existing_session() {
+        let reg = SessionRegistry::new();
+        reg.register("CP001", make_sender(), OcppVersion::V16);
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        assert!(matches!(result, RegisterResult::Evicted(_)));
+        assert_eq!(reg.count(), 1);
+    }
+
+    #[test]
+    fn unregister_removes_session() {
+        let reg = SessionRegistry::new();
+        reg.register("CP001", make_sender(), OcppVersion::V16);
+        reg.unregister("CP001");
+        assert_eq!(reg.count(), 0);
+        assert!(!reg.is_connected("CP001"));
+    }
+
+    #[test]
+    fn unregister_nonexistent_is_noop() {
+        let reg = SessionRegistry::new();
+        reg.unregister("CP_UNKNOWN"); // should not panic
+        assert_eq!(reg.count(), 0);
+    }
+
+    #[test]
+    fn connected_ids() {
+        let reg = SessionRegistry::new();
+        reg.register("CP001", make_sender(), OcppVersion::V16);
+        reg.register("CP002", make_sender(), OcppVersion::V201);
+        let mut ids = reg.connected_ids();
+        ids.sort();
+        assert_eq!(ids, vec!["CP001", "CP002"]);
+    }
+
+    #[test]
+    fn get_version() {
+        let reg = SessionRegistry::new();
+        reg.register("CP001", make_sender(), OcppVersion::V201);
+        assert_eq!(reg.get_version("CP001"), Some(OcppVersion::V201));
+        assert_eq!(reg.get_version("CP_UNKNOWN"), None);
+    }
+
+    #[test]
+    fn send_to_connected_charge_point() {
+        let reg = SessionRegistry::new();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        reg.register("CP001", tx, OcppVersion::V16);
+
+        reg.send_to("CP001", "hello".into()).unwrap();
+        assert_eq!(rx.try_recv().unwrap(), "hello");
+    }
+
+    #[test]
+    fn send_to_disconnected_returns_error() {
+        let reg = SessionRegistry::new();
+        let result = reg.send_to("CP_UNKNOWN", "msg".into());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn broadcast_sends_to_all() {
+        let reg = SessionRegistry::new();
+        let (tx1, mut rx1) = mpsc::unbounded_channel();
+        let (tx2, mut rx2) = mpsc::unbounded_channel();
+        reg.register("CP001", tx1, OcppVersion::V16);
+        reg.register("CP002", tx2, OcppVersion::V16);
+
+        reg.broadcast("ping");
+        assert_eq!(rx1.try_recv().unwrap(), "ping");
+        assert_eq!(rx2.try_recv().unwrap(), "ping");
+    }
+
+    #[test]
+    fn touch_updates_activity() {
+        let reg = SessionRegistry::new();
+        reg.register("CP001", make_sender(), OcppVersion::V16);
+        let before = reg
+            .sessions
+            .get("CP001")
+            .map(|c| c.last_activity)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        reg.touch("CP001");
+        let after = reg
+            .sessions
+            .get("CP001")
+            .map(|c| c.last_activity)
+            .unwrap();
+        assert!(after >= before);
+    }
+
+    #[test]
+    fn debounce_rejects_fast_reconnect() {
+        let reg = SessionRegistry::new();
+        reg.register("CP001", make_sender(), OcppVersion::V16);
+        reg.unregister("CP001"); // records disconnect time
+
+        // Immediately try to reconnect — should be debounced
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        assert!(matches!(result, RegisterResult::Debounced { .. }));
+    }
+
+    #[test]
+    fn shared_creates_arc() {
+        let shared = SessionRegistry::shared();
+        assert_eq!(shared.count(), 0);
+    }
+
+    #[test]
+    fn default_creates_registry() {
+        let reg = SessionRegistry::default();
+        assert_eq!(reg.count(), 0);
+    }
+}

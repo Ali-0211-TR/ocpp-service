@@ -218,3 +218,149 @@ pub struct TransactionBilling {
     pub currency: String,
     pub status: BillingStatus,
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_tariff(tariff_type: TariffType) -> Tariff {
+        Tariff {
+            id: 1,
+            name: "Test".into(),
+            description: None,
+            tariff_type,
+            price_per_kwh: 500,    // 5.00 per kWh
+            price_per_minute: 10,  // 0.10 per minute
+            session_fee: 100,      // 1.00 flat
+            currency: "UZS".into(),
+            min_fee: 0,
+            max_fee: 0,
+            is_active: true,
+            is_default: true,
+            valid_from: None,
+            valid_until: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn calculate_cost_per_kwh() {
+        let t = sample_tariff(TariffType::PerKwh);
+        // 10 kWh → 10 * 500 = 5000
+        assert_eq!(t.calculate_cost(10_000, 3600), 5000);
+    }
+
+    #[test]
+    fn calculate_cost_per_minute() {
+        let t = sample_tariff(TariffType::PerMinute);
+        // 60 minutes → 60 * 10 = 600
+        assert_eq!(t.calculate_cost(0, 3600), 600);
+    }
+
+    #[test]
+    fn calculate_cost_per_session() {
+        let t = sample_tariff(TariffType::PerSession);
+        assert_eq!(t.calculate_cost(50_000, 7200), 100);
+    }
+
+    #[test]
+    fn calculate_cost_combined() {
+        let t = sample_tariff(TariffType::Combined);
+        // energy: 10 kWh * 500 = 5000
+        // time:   60 min  * 10  = 600
+        // session_fee = 100
+        // total = 5700
+        assert_eq!(t.calculate_cost(10_000, 3600), 5700);
+    }
+
+    #[test]
+    fn min_fee_is_enforced() {
+        let mut t = sample_tariff(TariffType::PerKwh);
+        t.min_fee = 1000;
+        // 0 kWh → cost=0, but min_fee=1000
+        assert_eq!(t.calculate_cost(0, 0), 1000);
+    }
+
+    #[test]
+    fn max_fee_is_enforced() {
+        let mut t = sample_tariff(TariffType::Combined);
+        t.max_fee = 2000;
+        // normal combined = 5700, but capped at 2000
+        assert_eq!(t.calculate_cost(10_000, 3600), 2000);
+    }
+
+    #[test]
+    fn max_fee_zero_means_unlimited() {
+        let mut t = sample_tariff(TariffType::PerKwh);
+        t.max_fee = 0;
+        assert_eq!(t.calculate_cost(100_000, 0), 50_000);
+    }
+
+    #[test]
+    fn cost_breakdown_combined() {
+        let t = sample_tariff(TariffType::Combined);
+        let bd = t.calculate_cost_breakdown(10_000, 3600);
+        assert_eq!(bd.energy_cost, 5000);
+        assert_eq!(bd.time_cost, 600);
+        assert_eq!(bd.session_fee, 100);
+        assert_eq!(bd.subtotal, 5700);
+        assert_eq!(bd.total, 5700);
+        assert_eq!(bd.currency, "UZS");
+    }
+
+    #[test]
+    fn cost_breakdown_format_total() {
+        let t = sample_tariff(TariffType::PerKwh);
+        let bd = t.calculate_cost_breakdown(10_000, 3600);
+        assert_eq!(bd.format_total(), "50.00 UZS");
+    }
+
+    #[test]
+    fn format_cost_helper() {
+        let t = sample_tariff(TariffType::PerKwh);
+        assert_eq!(t.format_cost(12345), "123.45 UZS");
+        assert_eq!(t.format_cost(0), "0.00 UZS");
+    }
+
+    #[test]
+    fn is_valid_when_active_and_no_dates() {
+        let t = sample_tariff(TariffType::PerKwh);
+        assert!(t.is_valid());
+    }
+
+    #[test]
+    fn is_valid_when_inactive() {
+        let mut t = sample_tariff(TariffType::PerKwh);
+        t.is_active = false;
+        assert!(!t.is_valid());
+    }
+
+    #[test]
+    fn is_valid_with_future_valid_from() {
+        let mut t = sample_tariff(TariffType::PerKwh);
+        t.valid_from = Some(Utc::now() + chrono::Duration::hours(1));
+        assert!(!t.is_valid());
+    }
+
+    #[test]
+    fn is_valid_with_past_valid_until() {
+        let mut t = sample_tariff(TariffType::PerKwh);
+        t.valid_until = Some(Utc::now() - chrono::Duration::hours(1));
+        assert!(!t.is_valid());
+    }
+
+    #[test]
+    fn tariff_type_display() {
+        assert_eq!(TariffType::PerKwh.to_string(), "PerKwh");
+        assert_eq!(TariffType::Combined.to_string(), "Combined");
+    }
+
+    #[test]
+    fn billing_status_display() {
+        assert_eq!(BillingStatus::Pending.to_string(), "Pending");
+        assert_eq!(BillingStatus::Calculated.to_string(), "Calculated");
+    }
+}

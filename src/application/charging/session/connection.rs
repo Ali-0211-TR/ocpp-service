@@ -65,3 +65,61 @@ impl Connection {
         elapsed > timeout_seconds
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_connection() -> (Connection, mpsc::UnboundedReceiver<String>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let conn = Connection::new("CP001", tx, OcppVersion::V16);
+        (conn, rx)
+    }
+
+    #[test]
+    fn new_connection_fields() {
+        let (conn, _rx) = make_connection();
+        assert_eq!(conn.charge_point_id, "CP001");
+        assert_eq!(conn.ocpp_version, OcppVersion::V16);
+        assert!(conn.connected_at <= Utc::now());
+    }
+
+    #[test]
+    fn send_delivers_message() {
+        let (conn, mut rx) = make_connection();
+        conn.send("hello".into()).unwrap();
+        assert_eq!(rx.try_recv().unwrap(), "hello");
+    }
+
+    #[test]
+    fn send_to_closed_channel_returns_error() {
+        let (conn, rx) = make_connection();
+        drop(rx);
+        assert!(conn.send("msg".into()).is_err());
+    }
+
+    #[test]
+    fn touch_updates_last_activity() {
+        let (mut conn, _rx) = make_connection();
+        let before = conn.last_activity;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        conn.touch();
+        assert!(conn.last_activity >= before);
+    }
+
+    #[test]
+    fn is_stale_with_old_activity() {
+        let (mut conn, _rx) = make_connection();
+        // Manually set last_activity to 10 seconds ago
+        conn.last_activity = Utc::now() - chrono::Duration::seconds(10);
+        assert!(conn.is_stale(5));
+    }
+
+    #[test]
+    fn is_not_stale_with_large_timeout() {
+        let (conn, _rx) = make_connection();
+        assert!(!conn.is_stale(3600));
+    }
+}

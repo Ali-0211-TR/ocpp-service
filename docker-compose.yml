@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────
+# Texnouz OCPP Central System — Docker Compose
+# ─────────────────────────────────────────────────────────────────
+#
+# Usage:
+#   docker compose up -d            # start all services
+#   docker compose logs -f ocpp     # follow OCPP logs
+#   docker compose down             # stop everything
+
+services:
+  # ── OCPP Central System ────────────────────────────────────────
+  ocpp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: texnouz-ocpp
+    restart: unless-stopped
+    ports:
+      - "${OCPP_API_PORT:-8080}:8080"   # REST API + Swagger
+      - "${OCPP_WS_PORT:-9000}:9000"    # OCPP WebSocket
+    volumes:
+      - ocpp-data:/app/data
+      - ./config:/app/config:ro
+    environment:
+      - OCPP_CONFIG=/app/config/config.toml
+      - OCPP_LOG_FORMAT=${OCPP_LOG_FORMAT:-json}
+      - OCPP_LOG_LEVEL=${OCPP_LOG_LEVEL:-info}
+      - OCPP_JWT_SECRET=${OCPP_JWT_SECRET:-}
+      - OCPP_DB_PASSWORD=${OCPP_DB_PASSWORD:-}
+      - OCPP_ADMIN_PASSWORD=${OCPP_ADMIN_PASSWORD:-admin123}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - ocpp-net
+
+  # ── Prometheus (metrics) ──────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: ocpp-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    depends_on:
+      ocpp:
+        condition: service_healthy
+    networks:
+      - ocpp-net
+
+  # ── Grafana (dashboards) ─────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: ocpp-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    networks:
+      - ocpp-net
+
+volumes:
+  ocpp-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  ocpp-net:
+    driver: bridge

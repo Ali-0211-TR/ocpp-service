@@ -1,7 +1,11 @@
 //! Common API DTOs shared across all HTTP modules
 
+pub mod validated_json;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+pub use validated_json::ValidatedJson;
 
 /// Standard API response wrapper
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

@@ -365,6 +365,23 @@ pub fn create_api_router(
             "/{charge_point_id}/data-transfer",
             post(commands::data_transfer_handler),
         )
+        // --- v2.0.1-specific commands ---
+        .route(
+            "/{charge_point_id}/variables/get",
+            post(commands::get_variables),
+        )
+        .route(
+            "/{charge_point_id}/variables/set",
+            post(commands::set_variables),
+        )
+        .route(
+            "/{charge_point_id}/charging-profile/clear",
+            post(commands::clear_charging_profile),
+        )
+        .route(
+            "/{charge_point_id}/charging-profile/set",
+            post(commands::set_charging_profile),
+        )
         // --- Transactions under CP (uses State<TransactionAppState> via FromRef) ---
         .route(
             "/{charge_point_id}/transactions",

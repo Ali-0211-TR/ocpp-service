@@ -171,3 +171,112 @@ impl Transaction {
         }
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_tx() -> Transaction {
+        Transaction::new(1, "CP001", 1, "TAG-001", 1000)
+    }
+
+    #[test]
+    fn new_transaction_is_active() {
+        let tx = sample_tx();
+        assert!(tx.is_active());
+        assert_eq!(tx.status, TransactionStatus::Active);
+        assert_eq!(tx.meter_start, 1000);
+        assert!(tx.meter_stop.is_none());
+        assert!(tx.stopped_at.is_none());
+    }
+
+    #[test]
+    fn stop_sets_completed() {
+        let mut tx = sample_tx();
+        tx.stop(5000, Some("Local".into()));
+        assert_eq!(tx.status, TransactionStatus::Completed);
+        assert_eq!(tx.meter_stop, Some(5000));
+        assert_eq!(tx.stop_reason.as_deref(), Some("Local"));
+        assert!(tx.stopped_at.is_some());
+        assert!(!tx.is_active());
+    }
+
+    #[test]
+    fn energy_consumed_after_stop() {
+        let mut tx = sample_tx();
+        tx.stop(6000, None);
+        assert_eq!(tx.energy_consumed(), Some(5000));
+    }
+
+    #[test]
+    fn energy_consumed_none_while_active() {
+        let tx = sample_tx();
+        assert_eq!(tx.energy_consumed(), None);
+    }
+
+    #[test]
+    fn live_energy_consumed_from_meter_value() {
+        let mut tx = sample_tx();
+        tx.update_meter_data(Some(3000), None, None);
+        assert_eq!(tx.live_energy_consumed(), Some(2000));
+    }
+
+    #[test]
+    fn update_meter_data() {
+        let mut tx = sample_tx();
+        tx.update_meter_data(Some(2000), Some(7500.0), Some(45));
+        assert_eq!(tx.last_meter_value, Some(2000));
+        assert_eq!(tx.current_power_w, Some(7500.0));
+        assert_eq!(tx.current_soc, Some(45));
+        assert!(tx.last_meter_update.is_some());
+    }
+
+    #[test]
+    fn energy_limit_reached() {
+        let mut tx = sample_tx();
+        tx.limit_type = Some(ChargingLimitType::Energy);
+        tx.limit_value = Some(5.0); // 5 kWh
+        tx.last_meter_value = Some(6000); // consumed 5000 Wh = 5 kWh
+        assert!(tx.is_limit_reached());
+    }
+
+    #[test]
+    fn energy_limit_not_reached() {
+        let mut tx = sample_tx();
+        tx.limit_type = Some(ChargingLimitType::Energy);
+        tx.limit_value = Some(10.0);
+        tx.last_meter_value = Some(3000); // 2 kWh < 10 kWh
+        assert!(!tx.is_limit_reached());
+    }
+
+    #[test]
+    fn soc_limit_reached() {
+        let mut tx = sample_tx();
+        tx.limit_type = Some(ChargingLimitType::Soc);
+        tx.limit_value = Some(80.0);
+        tx.current_soc = Some(80);
+        assert!(tx.is_limit_reached());
+    }
+
+    #[test]
+    fn no_limit_means_not_reached() {
+        let tx = sample_tx();
+        assert!(!tx.is_limit_reached());
+    }
+
+    #[test]
+    fn charging_limit_type_roundtrip() {
+        for lt in &[
+            ChargingLimitType::Energy,
+            ChargingLimitType::Amount,
+            ChargingLimitType::Soc,
+        ] {
+            let s = lt.as_str();
+            let parsed = ChargingLimitType::from_str(s).unwrap();
+            assert_eq!(&parsed, lt);
+        }
+        assert!(ChargingLimitType::from_str("unknown").is_none());
+    }
+}

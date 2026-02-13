@@ -131,3 +131,82 @@ pub type SharedEventBus = Arc<EventBus>;
 pub fn create_event_bus() -> SharedEventBus {
     Arc::new(EventBus::new())
 }
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::events::{Event, HeartbeatEvent};
+
+    fn make_event() -> Event {
+        Event::HeartbeatReceived(HeartbeatEvent {
+            charge_point_id: "CP001".into(),
+            timestamp: chrono::Utc::now(),
+        })
+    }
+
+    #[test]
+    fn new_event_bus_has_no_subscribers() {
+        let bus = EventBus::new();
+        assert_eq!(bus.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn subscribe_increments_count() {
+        let bus = EventBus::new();
+        let _s1 = bus.subscribe();
+        assert_eq!(bus.subscriber_count(), 1);
+        let _s2 = bus.subscribe();
+        assert_eq!(bus.subscriber_count(), 2);
+    }
+
+    #[test]
+    fn drop_subscriber_decrements_count() {
+        let bus = EventBus::new();
+        let s1 = bus.subscribe();
+        assert_eq!(bus.subscriber_count(), 1);
+        drop(s1);
+        assert_eq!(bus.subscriber_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn publish_and_receive() {
+        let bus = EventBus::new();
+        let mut sub = bus.subscribe();
+
+        bus.publish(make_event());
+
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(1), sub.recv())
+            .await
+            .expect("timed out")
+            .expect("channel closed");
+
+        assert_eq!(msg.event.event_type(), "heartbeat_received");
+        assert_eq!(msg.event.charge_point_id(), Some("CP001"));
+    }
+
+    #[tokio::test]
+    async fn publish_without_subscribers_does_not_panic() {
+        let bus = EventBus::new();
+        bus.publish(make_event()); // no subscriber — should not panic
+    }
+
+    #[test]
+    fn with_capacity_creates_bus() {
+        let bus = EventBus::with_capacity(16);
+        assert_eq!(bus.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn default_creates_bus() {
+        let bus = EventBus::default();
+        assert_eq!(bus.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn create_event_bus_returns_arc() {
+        let bus = create_event_bus();
+        assert_eq!(bus.subscriber_count(), 0);
+    }
+}

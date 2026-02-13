@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use validator::Validate;
 
 use crate::domain::{ChargePoint, Connector, ConnectorStatus};
 
@@ -101,8 +102,9 @@ fn connector_status_to_string(status: &ConnectorStatus) -> String {
 }
 
 /// Request to create a new connector
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateConnectorRequest {
+    #[validate(range(min = 1, message = "connector_id must be ≥ 1"))]
     pub connector_id: u32,
 }
 

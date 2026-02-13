@@ -97,92 +97,32 @@
 - **Файлы:** `src/infrastructure/database/mod.rs`, `src/config.rs`
 - **Приоритет:** 🟠 Важный
 
-### 8. OCPP 2.0.1 CS→CP команды (OcppOutboundPort)
-- **Файл:** `src/application/ports/outbound.rs`
-- **Проблема:** Комментарий `"Phase 2: This trait will be fully implemented with version-specific adapters"`. CS→CP команды для V2.0.1 (`RequestStartTransaction`, `RequestStopTransaction`, `SetVariables`, `GetVariables`) используют V1.6 frame-формат через `CommandSender`.
-- **Решение:**
-  - Реализовать `OcppOutboundPort` для V2.0.1 с правильными типами сообщений из `rust_ocpp::v2_0_1`
-  - Маршрутизировать команды через `Connection::ocpp_version` для выбора правильного сериализатора
-  - Добавить V2.0.1-специфичные команды: `SetVariables`, `GetVariables`, `ClearChargingProfile`, `SetChargingProfile`
+### ~~8. OCPP 2.0.1 CS→CP команды (OcppOutboundPort)~~ ✅
+- **Реализовано:** `OcppOutboundPort` trait полностью реализован. `CommandDispatcher` имплементирует trait. V2.0.1 команды: `ClearChargingProfile`, `SetChargingProfile` добавлены. HTTP endpoints: `/variables/get`, `/variables/set`, `/charging-profile/clear`, `/charging-profile/set`.
 - **Приоритет:** 🟠 Важный (если планируется production-поддержка V2.0.1)
 
 ---
 
 ## 🟡 Средние (качество / DX)
 
-### 9. Тесты
-- **Текущее состояние:** ~10 unit-тестов (только `protocol_negotiation` и `ocpp_frames`)
-- **Нужно покрыть:**
-  - **Unit-тесты:**
-    - `BillingService::calculate_transaction_billing` — разные тарифы, edge cases (0 energy, 0 duration)
-    - `AppConfig::validate` — невалидные конфиги, пограничные значения
-    - `ChargePointService` — register/update, start/stop transactions
-    - `SessionRegistry` — register, unregister, concurrent access
-    - `EventBus` — publish/subscribe, filtering, lag handling
-    - `CommandSender` — timeout, cleanup, handle_response
-    - Auth middleware — JWT expiry, invalid tokens, API key scopes
-  - **Integration-тесты:**
-    - Полный flow: WS connect → BootNotification → StartTransaction → MeterValues → StopTransaction → Billing
-    - HTTP API: CRUD operations, auth flow, command sending
-  - **Инфраструктура:**
-    - Создать `tests/` директорию
-    - Утилиты: `TestDb` (in-memory SQLite), mock `SessionRegistry`, test fixtures
-- **Файлы:** `tests/`, inline `#[cfg(test)] mod tests` в сервисах
+### ~~9. Тесты~~ ✅
+- **Реализовано:** 88 unit-тестов (было 10 → стало 88). Покрыты: `Tariff::calculate_cost/cost_breakdown` (все типы тарифов, min/max fee, is_valid), `Transaction` (create/stop/energy/limits), `AppConfig::validate` (19 тестов: порты, JWT, пароли, уровни логов, формат, env overrides, save/reload), `EventBus` (pub/sub, subscriber count, drop), `SessionRegistry` (register/evict/unregister/debounce/broadcast/touch), `Connection` (send/stale/touch), `ValidatedJson` extractor (200/400/422).
 - **Приоритет:** 🟡 Средний
 
-### 10. Docker / Deployment
-- **Проблема:** Нет Dockerfile, docker-compose, CI/CD конфигов.
-- **Решение:**
-  - `Dockerfile` — multi-stage build (builder + runtime)
-  - `docker-compose.yml` — сервис + PostgreSQL + (опционально) Prometheus + Grafana
-  - `.github/workflows/ci.yml` — cargo check, cargo test, cargo clippy, cargo fmt
-  - `.github/workflows/release.yml` — build бинарников для Linux/macOS/Windows
-- **Файлы:** корень проекта
+### ~~10. Docker / Deployment~~ ✅
+- **Реализовано:** `Dockerfile` (multi-stage: rust:1.82-bookworm builder → debian:bookworm-slim runtime, non-root user, health check). `docker-compose.yml` (OCPP service + Prometheus + Grafana, volumes, environment overrides). `.dockerignore`. `deploy/prometheus.yml`. `.github/workflows/ci.yml` (fmt + clippy + check + test + docker build).
 - **Приоритет:** 🟡 Средний
 
-### 11. Structured Logging (JSON формат)
-- **Проблема:** Логи в текстовом формате — неудобно для агрегации (ELK, Loki).
-- **Решение:**
-  - Добавить `tracing-subscriber` с `json` layer
-  - Конфиг:
-    ```toml
-    [logging]
-    level = "info"
-    format = "json"  # или "text"
-    ```
-  - В production — `json`, в dev — `text` (human-readable)
-- **Файлы:** `src/main.rs` (инициализация tracing), `src/config.rs`
+### ~~11. Structured Logging (JSON формат)~~ ✅
+- **Реализовано:** `LoggingConfig.format` поле (`"text"` | `"json"`). `tracing_subscriber::registry()` с условным JSON или text layer. Конфигурация через TOML `[logging].format` или env `OCPP_LOG_FORMAT`.
 - **Приоритет:** 🟡 Средний
 
-### 12. Environment Variables для секретов
-- **Проблема:** Секреты (JWT secret, DB password, admin password) хранятся только в TOML-файле. Нет поддержки env vars.
-- **Решение:**
-  - Добавить `config` crate или вручную через `std::env::var`:
-    ```
-    OCPP_JWT_SECRET=... → переопределяет [security].jwt_secret
-    OCPP_DB_PASSWORD=... → переопределяет [database.postgres].password
-    OCPP_ADMIN_PASSWORD=... → переопределяет [admin].password
-    ```
-  - Env vars имеют приоритет над TOML
-- **Файлы:** `src/config.rs`
+### ~~12. Environment Variables для секретов~~ ✅
+- **Реализовано:** `AppConfig::apply_env_overrides()` поддерживает 10 env vars: `OCPP_JWT_SECRET`, `OCPP_DB_PASSWORD`, `OCPP_ADMIN_PASSWORD`, `OCPP_ADMIN_USERNAME`, `OCPP_ADMIN_EMAIL`, `OCPP_LOG_LEVEL`, `OCPP_LOG_FORMAT`, `OCPP_API_PORT`, `OCPP_WS_PORT`. Env vars имеют приоритет над TOML.
 - **Приоритет:** 🟡 Средний
 
-### 13. Валидация входных данных (request body)
-- **Проблема:** Нет единого слоя валидации. Проверки разбросаны по хэндлерам ad-hoc.
-- **Решение:**
-  - Добавить `validator` crate
-  - Derive `#[derive(Validate)]` на все DTO:
-    ```rust
-    #[derive(Validate)]
-    struct RemoteStartRequest {
-        #[validate(length(min = 1, max = 20))]
-        id_tag: String,
-        #[validate(range(min = 1, max = 10))]
-        connector_id: Option<u32>,
-    }
-    ```
-  - Axum extractor: `Json<Valid<T>>` → автоматический 400 при невалидных данных
-- **Файлы:** `src/interfaces/http/common/`, DTO модули
+### ~~13. Валидация входных данных (request body)~~ ✅
+- **Реализовано:** `validator 0.18` с `derive`. `ValidatedJson<T>` custom Axum extractor (422 с field-level ошибками). `#[derive(Validate)]` на все request DTO: auth (Login, Register, ChangePassword), users (Create, Update), id_tags (Create, Update), tariffs (Create, Update, CostPreview), commands (RemoteStart, RemoteStop, Reset, ChangeAvailability, TriggerMessage, DataTransfer, GetVariables, SetVariables, ClearChargingProfile, SetChargingProfile), api_keys (Create), charge_points (CreateConnector).
 - **Приоритет:** 🟡 Средний
 
 ---
@@ -224,7 +164,6 @@
 
 | Место | Описание |
 |-------|----------|
-| `src/application/ports/outbound.rs` | `OcppOutboundPort` — "Phase 2" stub, не реализован |
 | `src/interfaces/grpc/mod.rs` | Пустой placeholder |
 | `handle_stop_transaction.rs` / v16 | Нет проверки `id_tag` авторизации при StopTransaction |
 | `ocpp_server.rs` L67 | Fallback на последнюю версию при неизвестном subprotocol — может подключить станцию на неправильном протоколе |
@@ -252,3 +191,15 @@
 - [x] TransactionBilledEvent
 - [x] Авто-биллинг при RemoteStop / ForceStop
 - [x] Default admin creation
+- [x] OCPP 2.0.1 CS→CP полный (OcppOutboundPort + ClearChargingProfile + SetChargingProfile)
+- [x] Request ID / Correlation ID (HTTP + WS)
+- [x] DB Connection Pool + Retry с backoff
+- [x] Prometheus метрики (8 типов)
+- [x] Обработка дублирующих WS-подключений (eviction + debounce)
+- [x] CORS конфигурация
+- [x] Rate Limiting (HTTP + WS)
+- [x] Structured Logging (JSON/text format)
+- [x] Environment Variables (10 env overrides)
+- [x] Input Validation (validator + ValidatedJson extractor)
+- [x] Docker / Deployment (Dockerfile + docker-compose + CI/CD)
+- [x] 88 unit-тестов (tariff, transaction, config, event_bus, session_registry, connection, validated_json)

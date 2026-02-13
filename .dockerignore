@@ -1,0 +1,13 @@
+# Docker build artifacts
+target/
+.git/
+.gitignore
+README.md
+ARCH.MD
+TODO.md
+FRONTEND_PROMPT.md
+desktop/
+deploy/
+*.md
+.github/
+.vscode/

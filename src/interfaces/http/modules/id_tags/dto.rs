@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
+use validator::Validate;
 
 use crate::infrastructure::database::entities::id_tag;
 
@@ -38,8 +39,9 @@ impl From<id_tag::Model> for IdTagDto {
     }
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateIdTagRequest {
+    #[validate(length(min = 1, max = 20, message = "id_tag must be 1–20 characters"))]
     pub id_tag: String,
     pub parent_id_tag: Option<String>,
     #[serde(default = "default_status")]
@@ -54,7 +56,7 @@ fn default_status() -> String {
     "Accepted".to_string()
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateIdTagRequest {
     pub parent_id_tag: Option<String>,
     pub status: Option<String>,

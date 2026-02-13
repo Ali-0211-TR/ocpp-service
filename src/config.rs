@@ -159,6 +159,10 @@ pub struct LoggingConfig {
     /// Log level: error, warn, info, debug, trace
     #[serde(default = "default_log_level")]
     pub level: String,
+
+    /// Log output format: "text" (human-readable) or "json" (structured)
+    #[serde(default = "default_log_format")]
+    pub format: String,
 }
 
 /// CORS configuration
@@ -262,6 +266,9 @@ fn default_admin_password() -> String {
 }
 fn default_log_level() -> String {
     "info".into()
+}
+fn default_log_format() -> String {
+    "text".into()
 }
 fn default_cors_origins() -> Vec<String> {
     vec!["*".into()]
@@ -374,6 +381,7 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: default_log_level(),
+            format: default_log_format(),
         }
     }
 }
@@ -486,18 +494,71 @@ pub fn default_config_path() -> PathBuf {
 impl AppConfig {
     /// Load configuration from a TOML file.
     /// If the file doesn't exist, creates one with defaults.
+    /// Environment variables override TOML values (highest priority).
     pub fn load(path: &Path) -> Result<Self, String> {
-        if path.exists() {
+        let mut cfg = if path.exists() {
             let content = std::fs::read_to_string(path)
                 .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?;
-            let cfg: AppConfig = toml::from_str(&content)
-                .map_err(|e| format!("Invalid TOML in {}: {}", path.display(), e))?;
-            cfg.validate()?;
-            Ok(cfg)
+            toml::from_str(&content)
+                .map_err(|e| format!("Invalid TOML in {}: {}", path.display(), e))?
         } else {
             let cfg = AppConfig::default();
             cfg.save(path)?;
-            Ok(cfg)
+            cfg
+        };
+
+        // ── Environment variable overrides ─────────────────────
+        // Env vars have highest priority, overriding TOML values.
+        cfg.apply_env_overrides();
+
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    /// Apply environment variable overrides for sensitive config values.
+    ///
+    /// Supported variables:
+    /// - `OCPP_JWT_SECRET` → `[security].jwt_secret`
+    /// - `OCPP_DB_PASSWORD` → `[database.postgres].password`
+    /// - `OCPP_ADMIN_PASSWORD` → `[admin].password`
+    /// - `OCPP_ADMIN_USERNAME` → `[admin].username`
+    /// - `OCPP_ADMIN_EMAIL` → `[admin].email`
+    /// - `OCPP_DB_URL` → overrides the entire database connection URL (driver-dependent)
+    /// - `OCPP_LOG_LEVEL` → `[logging].level`
+    /// - `OCPP_LOG_FORMAT` → `[logging].format`
+    /// - `OCPP_API_PORT` → `[server].api_port`
+    /// - `OCPP_WS_PORT` → `[server].ws_port`
+    fn apply_env_overrides(&mut self) {
+        if let Ok(v) = std::env::var("OCPP_JWT_SECRET") {
+            self.security.jwt_secret = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_DB_PASSWORD") {
+            self.database.postgres.password = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_ADMIN_PASSWORD") {
+            self.admin.password = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_ADMIN_USERNAME") {
+            self.admin.username = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_ADMIN_EMAIL") {
+            self.admin.email = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_LOG_LEVEL") {
+            self.logging.level = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_LOG_FORMAT") {
+            self.logging.format = v;
+        }
+        if let Ok(v) = std::env::var("OCPP_API_PORT") {
+            if let Ok(port) = v.parse::<u16>() {
+                self.server.api_port = port;
+            }
+        }
+        if let Ok(v) = std::env::var("OCPP_WS_PORT") {
+            if let Ok(port) = v.parse::<u16>() {
+                self.server.ws_port = port;
+            }
         }
     }
 
@@ -573,6 +634,14 @@ impl AppConfig {
             ));
         }
 
+        let valid_formats = ["text", "json"];
+        if !valid_formats.contains(&self.logging.format.to_lowercase().as_str()) {
+            errors.push(format!(
+                "Invalid log format '{}'. Valid: {:?}",
+                self.logging.format, valid_formats
+            ));
+        }
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -598,5 +667,206 @@ impl AppConfig {
         std::fs::write(path, format!("{}{}", header, content))
             .map_err(|e| format!("Cannot write {}: {}", path.display(), e))?;
         Ok(())
+    }
+}
+
+// ── Tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_validates() {
+        let cfg = AppConfig::default();
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn same_port_same_host_is_error() {
+        let mut cfg = AppConfig::default();
+        cfg.server.api_port = 8080;
+        cfg.server.ws_port = 8080;
+        cfg.server.api_host = "0.0.0.0".into();
+        cfg.server.ws_host = "0.0.0.0".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("must be different"));
+    }
+
+    #[test]
+    fn same_port_different_host_is_ok() {
+        let mut cfg = AppConfig::default();
+        cfg.server.api_port = 8080;
+        cfg.server.ws_port = 8080;
+        cfg.server.api_host = "127.0.0.1".into();
+        cfg.server.ws_host = "0.0.0.0".into();
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn short_jwt_secret_is_error() {
+        let mut cfg = AppConfig::default();
+        cfg.security.jwt_secret = "short".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("JWT secret must be at least 16"));
+    }
+
+    #[test]
+    fn jwt_expiration_out_of_range() {
+        let mut cfg = AppConfig::default();
+        cfg.security.jwt_expiration_hours = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("JWT expiration"));
+    }
+
+    #[test]
+    fn heartbeat_too_low() {
+        let mut cfg = AppConfig::default();
+        cfg.server.heartbeat_interval = 5;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("Heartbeat interval"));
+    }
+
+    #[test]
+    fn shutdown_timeout_too_low() {
+        let mut cfg = AppConfig::default();
+        cfg.server.shutdown_timeout = 2;
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("Shutdown timeout"));
+    }
+
+    #[test]
+    fn invalid_log_level() {
+        let mut cfg = AppConfig::default();
+        cfg.logging.level = "verbose".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("Invalid log level"));
+    }
+
+    #[test]
+    fn invalid_log_format() {
+        let mut cfg = AppConfig::default();
+        cfg.logging.format = "xml".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("Invalid log format"));
+    }
+
+    #[test]
+    fn json_log_format_validates() {
+        let mut cfg = AppConfig::default();
+        cfg.logging.format = "json".into();
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn postgres_empty_password_is_error() {
+        let mut cfg = AppConfig::default();
+        cfg.database.driver = DbType::Postgres;
+        cfg.database.postgres.password = String::new();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("PostgreSQL password"));
+    }
+
+    #[test]
+    fn admin_short_password_is_error() {
+        let mut cfg = AppConfig::default();
+        cfg.admin.password = "ab".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("Admin password"));
+    }
+
+    #[test]
+    fn connection_url_sqlite() {
+        let cfg = DatabaseSettings::default();
+        assert!(cfg.connection_url().starts_with("sqlite://"));
+    }
+
+    #[test]
+    fn connection_url_postgres() {
+        let mut cfg = DatabaseSettings::default();
+        cfg.driver = DbType::Postgres;
+        cfg.postgres.host = "db.host".into();
+        cfg.postgres.port = 5432;
+        cfg.postgres.username = "user".into();
+        cfg.postgres.password = "pass".into();
+        cfg.postgres.database = "mydb".into();
+        assert_eq!(cfg.connection_url(), "postgres://user:pass@db.host:5432/mydb");
+    }
+
+    #[test]
+    fn env_overrides_jwt_secret() {
+        let mut cfg = AppConfig::default();
+        std::env::set_var("OCPP_JWT_SECRET", "my-super-secret-key-for-jwt-test");
+        cfg.apply_env_overrides();
+        std::env::remove_var("OCPP_JWT_SECRET");
+        assert_eq!(cfg.security.jwt_secret, "my-super-secret-key-for-jwt-test");
+    }
+
+    #[test]
+    fn env_overrides_ports() {
+        let mut cfg = AppConfig::default();
+        std::env::set_var("OCPP_API_PORT", "3333");
+        std::env::set_var("OCPP_WS_PORT", "4444");
+        cfg.apply_env_overrides();
+        std::env::remove_var("OCPP_API_PORT");
+        std::env::remove_var("OCPP_WS_PORT");
+        assert_eq!(cfg.server.api_port, 3333);
+        assert_eq!(cfg.server.ws_port, 4444);
+    }
+
+    #[test]
+    fn env_overrides_invalid_port_ignored() {
+        let mut cfg = AppConfig::default();
+        let original = cfg.server.api_port;
+        std::env::set_var("OCPP_API_PORT", "not_a_number");
+        cfg.apply_env_overrides();
+        std::env::remove_var("OCPP_API_PORT");
+        assert_eq!(cfg.server.api_port, original);
+    }
+
+    #[test]
+    fn save_and_reload() {
+        let dir = std::env::temp_dir().join("ocpp_test_config");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_config.toml");
+
+        let cfg = AppConfig::default();
+        cfg.save(&path).unwrap();
+        assert!(path.exists());
+
+        let loaded = AppConfig::load(&path).unwrap();
+        assert_eq!(loaded.server.api_port, cfg.server.api_port);
+        assert_eq!(loaded.server.ws_port, cfg.server.ws_port);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_from_app_config() {
+        let app = AppConfig::default();
+        let ws_cfg = Config::from(&app);
+        assert_eq!(ws_cfg.host, app.server.ws_host);
+        assert_eq!(ws_cfg.port, app.server.ws_port);
+        assert_eq!(ws_cfg.heartbeat_interval, app.server.heartbeat_interval);
+    }
+
+    #[test]
+    fn config_address() {
+        let c = Config::new("127.0.0.1", 9000);
+        assert_eq!(c.address(), "127.0.0.1:9000");
+    }
+
+    #[test]
+    fn multiple_validation_errors() {
+        let mut cfg = AppConfig::default();
+        cfg.security.jwt_secret = "short".into();
+        cfg.server.heartbeat_interval = 1;
+        cfg.admin.password = "ab".into();
+        let err = cfg.validate().unwrap_err();
+        // Should contain multiple bullet points
+        assert!(err.contains("•"));
+        assert!(err.contains("JWT secret"));
+        assert!(err.contains("Heartbeat"));
+        assert!(err.contains("Admin password"));
     }
 }

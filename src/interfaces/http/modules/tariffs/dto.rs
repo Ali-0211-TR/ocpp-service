@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use validator::Validate;
 
 use crate::domain::Tariff;
 
@@ -50,8 +51,9 @@ impl From<Tariff> for TariffResponse {
     }
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateTariffRequest {
+    #[validate(length(min = 1, max = 100, message = "tariff name is required"))]
     pub name: String,
     pub description: Option<String>,
     pub tariff_type: String,
@@ -67,7 +69,7 @@ pub struct CreateTariffRequest {
     pub valid_until: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateTariffRequest {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -84,10 +86,12 @@ pub struct UpdateTariffRequest {
     pub valid_until: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CostPreviewRequest {
     pub tariff_id: Option<i32>,
+    #[validate(range(min = 0, message = "energy_wh must be non-negative"))]
     pub energy_wh: i32,
+    #[validate(range(min = 0, message = "duration_seconds must be non-negative"))]
     pub duration_seconds: i64,
 }
 

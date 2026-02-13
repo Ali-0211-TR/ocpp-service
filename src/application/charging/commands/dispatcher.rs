@@ -17,6 +17,7 @@ use crate::domain::OcppVersion;
 pub use super::{
     Availability, ConfigurationResult, DataTransferResult, KeyValue, ResetKind, TriggerType,
 };
+pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
 pub use v201::get_variables::GetVariablesResult;
 pub use v201::set_variables::SetVariablesResult;
 
@@ -478,6 +479,71 @@ impl CommandDispatcher {
         record_command_latency("unlock_connector", start);
         result
     }
+
+    // ─── Clear Charging Profile (v2.0.1 only) ─────────────────────────
+
+    /// ClearChargingProfile — v2.0.1 only.
+    ///
+    /// Removes one or more charging profiles from the station by id, EVSE,
+    /// purpose, or stack level. v1.6 does not support this command.
+    pub async fn clear_charging_profile(
+        &self,
+        charge_point_id: &str,
+        criteria: ClearChargingProfileCriteria,
+    ) -> Result<String, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching ClearChargingProfile");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "ClearChargingProfile is not available in OCPP 1.6.".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::clear_charging_profile::clear_charging_profile(
+                    &self.command_sender,
+                    charge_point_id,
+                    criteria,
+                )
+                .await
+            }
+        };
+        record_command_latency("clear_charging_profile", start);
+        result
+    }
+
+    // ─── Set Charging Profile (v2.0.1 only) ───────────────────────────
+
+    /// SetChargingProfile — v2.0.1 only.
+    ///
+    /// Sends a full `ChargingProfileType` to the station for a given EVSE.
+    pub async fn set_charging_profile(
+        &self,
+        charge_point_id: &str,
+        evse_id: i32,
+        charging_profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType,
+    ) -> Result<String, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching SetChargingProfile");
+
+        let result = match version {
+            OcppVersion::V16 => Err(CommandError::UnsupportedVersion(
+                "SetChargingProfile is not available in OCPP 1.6.".to_string(),
+            )),
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::set_charging_profile::set_charging_profile(
+                    &self.command_sender,
+                    charge_point_id,
+                    evse_id,
+                    charging_profile,
+                )
+                .await
+            }
+        };
+        record_command_latency("set_charging_profile", start);
+        result
+    }
 }
 
 pub type SharedCommandDispatcher = Arc<CommandDispatcher>;
@@ -487,4 +553,143 @@ pub fn create_command_dispatcher(
     session_registry: SharedSessionRegistry,
 ) -> SharedCommandDispatcher {
     Arc::new(CommandDispatcher::new(command_sender, session_registry))
+}
+
+// ── OcppOutboundPort implementation ────────────────────────────────
+
+use async_trait::async_trait;
+use crate::application::ports::outbound::OcppOutboundPort;
+
+#[async_trait]
+impl OcppOutboundPort for CommandDispatcher {
+    async fn remote_start_transaction(
+        &self,
+        charge_point_id: &str,
+        id_tag: &str,
+        connector_id: Option<u32>,
+    ) -> Result<String, CommandError> {
+        self.remote_start(charge_point_id, id_tag, connector_id).await
+    }
+
+    async fn remote_stop_transaction(
+        &self,
+        charge_point_id: &str,
+        transaction_id: i32,
+    ) -> Result<String, CommandError> {
+        self.remote_stop(charge_point_id, transaction_id).await
+    }
+
+    async fn reset(
+        &self,
+        charge_point_id: &str,
+        reset_type: ResetKind,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::reset(self, charge_point_id, reset_type).await
+    }
+
+    async fn unlock_connector(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::unlock_connector(self, charge_point_id, connector_id).await
+    }
+
+    async fn change_availability(
+        &self,
+        charge_point_id: &str,
+        connector_id: u32,
+        availability: Availability,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::change_availability(self, charge_point_id, connector_id, availability)
+            .await
+    }
+
+    async fn clear_cache(&self, charge_point_id: &str) -> Result<String, CommandError> {
+        CommandDispatcher::clear_cache(self, charge_point_id).await
+    }
+
+    async fn trigger_message(
+        &self,
+        charge_point_id: &str,
+        requested_message: TriggerType,
+        connector_id: Option<u32>,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::trigger_message(self, charge_point_id, requested_message, connector_id)
+            .await
+    }
+
+    async fn get_configuration(
+        &self,
+        charge_point_id: &str,
+        keys: Option<Vec<String>>,
+    ) -> Result<super::ConfigurationResult, CommandError> {
+        CommandDispatcher::get_configuration(self, charge_point_id, keys).await
+    }
+
+    async fn change_configuration(
+        &self,
+        charge_point_id: &str,
+        key: String,
+        value: String,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::change_configuration(self, charge_point_id, key, value).await
+    }
+
+    async fn get_variables(
+        &self,
+        charge_point_id: &str,
+        variables: Vec<(String, String)>,
+    ) -> Result<GetVariablesResult, CommandError> {
+        CommandDispatcher::get_variables(self, charge_point_id, variables).await
+    }
+
+    async fn set_variables(
+        &self,
+        charge_point_id: &str,
+        variables: Vec<(String, String, String)>,
+    ) -> Result<SetVariablesResult, CommandError> {
+        CommandDispatcher::set_variables(self, charge_point_id, variables).await
+    }
+
+    async fn clear_charging_profile(
+        &self,
+        charge_point_id: &str,
+        criteria: ClearChargingProfileCriteria,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::clear_charging_profile(self, charge_point_id, criteria).await
+    }
+
+    async fn set_charging_profile(
+        &self,
+        charge_point_id: &str,
+        evse_id: i32,
+        charging_profile_json: serde_json::Value,
+    ) -> Result<String, CommandError> {
+        let profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType =
+            serde_json::from_value(charging_profile_json).map_err(|e| {
+                CommandError::InvalidResponse(format!(
+                    "Invalid ChargingProfile JSON: {}",
+                    e
+                ))
+            })?;
+        CommandDispatcher::set_charging_profile(self, charge_point_id, evse_id, profile).await
+    }
+
+    async fn data_transfer(
+        &self,
+        charge_point_id: &str,
+        vendor_id: String,
+        message_id: Option<String>,
+        data: Option<String>,
+    ) -> Result<super::DataTransferResult, CommandError> {
+        CommandDispatcher::data_transfer(self, charge_point_id, vendor_id, message_id, data).await
+    }
+
+    async fn get_local_list_version(
+        &self,
+        charge_point_id: &str,
+    ) -> Result<i32, CommandError> {
+        CommandDispatcher::get_local_list_version(self, charge_point_id).await
+    }
 }

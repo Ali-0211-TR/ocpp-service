@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use sea_orm_migration::MigratorTrait;
 use tracing::{error, info, warn};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use metrics_exporter_prometheus;
 use texnouz_ocpp::application::commands::{create_command_dispatcher, create_command_sender};
@@ -32,13 +34,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| default_config_path());
     let app_cfg = match AppConfig::load(&config_path) {
         Ok(cfg) => {
-            // Initialize logging with configured level
-            tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cfg.logging.level)),
-                )
-                .init();
+            // Initialize logging with configured level and format
+            let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cfg.logging.level));
+
+            match cfg.logging.format.to_lowercase().as_str() {
+                "json" => {
+                    tracing_subscriber::registry()
+                        .with(env_filter)
+                        .with(tracing_subscriber::fmt::layer().json())
+                        .init();
+                }
+                _ => {
+                    tracing_subscriber::registry()
+                        .with(env_filter)
+                        .with(tracing_subscriber::fmt::layer())
+                        .init();
+                }
+            }
+
             info!("Configuration loaded from {}", config_path.display());
             cfg
         }

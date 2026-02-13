@@ -2,14 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use validator::Validate;
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 #[schema(example = json!({
     "name": "My Integration",
     "scopes": ["charge_points:read", "transactions:read"]
 }))]
 pub struct CreateApiKeyRequest {
+    #[validate(length(min = 1, max = 100, message = "name is required"))]
     pub name: String,
+    #[validate(length(min = 1, message = "at least one scope is required"))]
     pub scopes: Vec<String>,
     pub expires_in_days: Option<i64>,
 }

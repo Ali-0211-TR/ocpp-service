@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
+use validator::Validate;
 
 use crate::domain::{User, UserRole};
 
@@ -44,10 +45,13 @@ fn role_to_str(role: &UserRole) -> &'static str {
 }
 
 /// Create user request
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateUserRequest {
+    #[validate(length(min = 3, max = 50, message = "username must be 3–50 characters"))]
     pub username: String,
+    #[validate(email(message = "invalid email format"))]
     pub email: String,
+    #[validate(length(min = 6, max = 128, message = "password must be 6–128 characters"))]
     pub password: String,
     #[serde(default = "default_role")]
     pub role: String,
@@ -58,7 +62,7 @@ fn default_role() -> String {
 }
 
 /// Update user request
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateUserRequest {
     pub username: Option<String>,
     pub email: Option<String>,

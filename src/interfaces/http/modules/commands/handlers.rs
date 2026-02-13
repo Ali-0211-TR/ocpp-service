@@ -11,13 +11,16 @@ use chrono::Utc;
 use tracing::{error, info, warn};
 
 use super::dto::{
-    ChangeAvailabilityRequest, ChangeConfigurationRequest, CommandResponse, DataTransferRequest,
-    DataTransferResponse, LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest,
-    ResetRequest, TriggerMessageRequest, UnlockConnectorRequest,
+    ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
+    CommandResponse, DataTransferRequest, DataTransferResponse, GetVariablesRequest,
+    GetVariablesResponse, LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest,
+    ResetRequest, SetChargingProfileRequest, SetVariablesRequest, SetVariablesResponse,
+    TriggerMessageRequest, UnlockConnectorRequest, VariableResultDto, SetVariableStatusDto,
 };
 use crate::application::events::{
     Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
 };
+use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
 use crate::application::ChargePointService;
 use crate::application::SharedSessionRegistry;
 use crate::application::{
@@ -776,6 +779,252 @@ pub async fn data_transfer_handler(
             status: result.status,
             data: result.data,
         }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+// ── v2.0.1-specific command handlers ───────────────────────────────
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/variables/get",
+    tag = "Commands (v2.0.1)",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = GetVariablesRequest,
+    responses(
+        (status = 200, description = "Variables", body = ApiResponse<GetVariablesResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn get_variables(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<GetVariablesRequest>,
+) -> Result<
+    Json<ApiResponse<GetVariablesResponse>>,
+    (StatusCode, Json<ApiResponse<GetVariablesResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let variables: Vec<(String, String)> = request
+        .variables
+        .into_iter()
+        .map(|v| (v.component, v.variable))
+        .collect();
+
+    match state
+        .command_dispatcher
+        .get_variables(&charge_point_id, variables)
+        .await
+    {
+        Ok(result) => {
+            let results = result
+                .results
+                .into_iter()
+                .map(|r| VariableResultDto {
+                    component: r.component,
+                    variable: r.variable,
+                    status: r.attribute_status,
+                    value: r.attribute_value,
+                })
+                .collect();
+            Ok(Json(ApiResponse::success(GetVariablesResponse { results })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/variables/set",
+    tag = "Commands (v2.0.1)",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = SetVariablesRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<SetVariablesResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn set_variables(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<SetVariablesRequest>,
+) -> Result<
+    Json<ApiResponse<SetVariablesResponse>>,
+    (StatusCode, Json<ApiResponse<SetVariablesResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let variables: Vec<(String, String, String)> = request
+        .variables
+        .into_iter()
+        .map(|v| (v.component, v.variable, v.value))
+        .collect();
+
+    match state
+        .command_dispatcher
+        .set_variables(&charge_point_id, variables)
+        .await
+    {
+        Ok(result) => {
+            let results = result
+                .results
+                .into_iter()
+                .map(|r| SetVariableStatusDto {
+                    component: r.component,
+                    variable: r.variable,
+                    status: r.status,
+                })
+                .collect();
+            Ok(Json(ApiResponse::success(SetVariablesResponse { results })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/charging-profile/clear",
+    tag = "Commands (v2.0.1)",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = ClearChargingProfileRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn clear_charging_profile(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<ClearChargingProfileRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    let criteria = ClearChargingProfileCriteria {
+        charging_profile_id: request.charging_profile_id,
+        evse_id: request.evse_id,
+        charging_profile_purpose: request.charging_profile_purpose,
+        stack_level: request.stack_level,
+    };
+
+    match state
+        .command_dispatcher
+        .clear_charging_profile(&charge_point_id, criteria)
+        .await
+    {
+        Ok(status_str) => {
+            let accepted = status_str.contains("Accepted");
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Charging profile(s) cleared".to_string())
+                } else {
+                    Some("No matching charging profiles found".to_string())
+                },
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/charging-profile/set",
+    tag = "Commands (v2.0.1)",
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    security(("bearer_auth" = []), ("api_key" = [])),
+    request_body = SetChargingProfileRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<CommandResponse>),
+        (status = 404, description = "Not connected")
+    )
+)]
+pub async fn set_charging_profile(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<SetChargingProfileRequest>,
+) -> Result<Json<ApiResponse<CommandResponse>>, (StatusCode, Json<ApiResponse<CommandResponse>>)> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    // Deserialize the raw JSON into the typed ChargingProfileType
+    let charging_profile: rust_ocpp::v2_0_1::datatypes::charging_profile_type::ChargingProfileType =
+        serde_json::from_value(request.charging_profile).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(format!(
+                    "Invalid ChargingProfile JSON: {}",
+                    e
+                ))),
+            )
+        })?;
+
+    match state
+        .command_dispatcher
+        .set_charging_profile(
+            &charge_point_id,
+            request.evse_id,
+            charging_profile,
+        )
+        .await
+    {
+        Ok(status_str) => {
+            let accepted = status_str.contains("Accepted");
+            Ok(Json(ApiResponse::success(CommandResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Charging profile set".to_string())
+                } else {
+                    Some("Charging profile rejected by station".to_string())
+                },
+            })))
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),

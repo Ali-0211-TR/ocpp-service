@@ -5,12 +5,14 @@
 
 pub mod change_availability;
 pub mod clear_cache;
+pub mod clear_charging_profile;
 pub mod data_transfer;
 pub mod get_local_list_version;
 pub mod get_variables;
 pub mod remote_start;
 pub mod remote_stop;
 pub mod reset;
+pub mod set_charging_profile;
 pub mod set_variables;
 pub mod trigger_message;
 pub mod unlock_connector;
