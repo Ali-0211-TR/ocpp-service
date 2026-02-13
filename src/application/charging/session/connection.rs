@@ -20,6 +20,15 @@ pub struct Connection {
     pub last_activity: DateTime<Utc>,
 }
 
+/// Info returned when an existing session is evicted by a new connection
+#[derive(Debug)]
+pub struct EvictedSession {
+    pub charge_point_id: String,
+    pub ocpp_version: OcppVersion,
+    pub connected_at: DateTime<Utc>,
+    pub last_activity: DateTime<Utc>,
+}
+
 impl Connection {
     pub fn new(
         charge_point_id: impl Into<String>,

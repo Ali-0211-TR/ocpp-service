@@ -23,6 +23,7 @@ use crate::application::events::{
 };
 use crate::application::SharedCommandSender;
 use crate::application::SharedSessionRegistry;
+use crate::application::session::RegisterResult;
 use crate::config::Config;
 use crate::domain::RepositoryProvider;
 use crate::domain::OcppVersion;
@@ -348,8 +349,43 @@ async fn handle_connection(
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
-    // ── Register session with version ──────────────────────
-    session_registry.register(&charge_point_id, tx, version);
+    // ── Register session (with eviction / debounce) ────────
+    match session_registry.register(&charge_point_id, tx, version) {
+        RegisterResult::Debounced {
+            seconds_remaining, ..
+        } => {
+            warn!(
+                "[{}] Reconnection rejected — debounce active, retry in {}s",
+                charge_point_id, seconds_remaining
+            );
+            let close_frame = tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Again,
+                reason: format!("Reconnecting too fast, retry in {}s", seconds_remaining).into(),
+            };
+            let _ = ws_sender.send(Message::Close(Some(close_frame))).await;
+            return Ok(());
+        }
+        RegisterResult::Evicted(old) => {
+            warn!(
+                "[{}] Evicted previous session (was {} since {}, last active {})",
+                charge_point_id, old.ocpp_version, old.connected_at, old.last_activity
+            );
+            // Old sender was dropped → old send_task will exit.
+            // Clean up pending commands for the old session.
+            command_sender.cleanup_charge_point(&charge_point_id);
+            // Publish disconnect event for the evicted session.
+            event_bus.publish(Event::ChargePointDisconnected(
+                ChargePointDisconnectedEvent {
+                    charge_point_id: charge_point_id.clone(),
+                    timestamp: Utc::now(),
+                    reason: Some("Evicted by new connection".to_string()),
+                },
+            ));
+        }
+        RegisterResult::New => {
+            // First connection — nothing to clean up
+        }
+    }
 
     event_bus.publish(Event::ChargePointConnected(ChargePointConnectedEvent {
         charge_point_id: charge_point_id.clone(),

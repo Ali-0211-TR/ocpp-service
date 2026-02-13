@@ -1,5 +1,5 @@
 pub mod connection;
 pub mod registry;
 
-pub use connection::Connection;
-pub use registry::{SessionRegistry, SharedSessionRegistry};
+pub use connection::{Connection, EvictedSession};
+pub use registry::{RegisterResult, SessionRegistry, SharedSessionRegistry};
