@@ -15,7 +15,8 @@ use crate::domain::OcppVersion;
 
 // Re-export common types used by the dispatcher's public API
 pub use super::{
-    Availability, ConfigurationResult, DataTransferResult, KeyValue, ResetKind, TriggerType,
+    Availability, ConfigurationResult, DataTransferResult, KeyValue, LocalAuthEntry, ResetKind,
+    TriggerType,
 };
 pub use v201::clear_charging_profile::ClearChargingProfileCriteria;
 pub use v201::get_variables::GetVariablesResult;
@@ -408,6 +409,48 @@ impl CommandDispatcher {
         result
     }
 
+    // ─── Send Local List ───────────────────────────────────────────────
+
+    /// SendLocalList — sends or updates the local authorization list on the charge point.
+    ///
+    /// `update_type`: `"Full"` or `"Differential"`.
+    pub async fn send_local_list(
+        &self,
+        charge_point_id: &str,
+        list_version: i32,
+        update_type: &str,
+        entries: Option<Vec<LocalAuthEntry>>,
+    ) -> Result<String, CommandError> {
+        let version = self.resolve_version(charge_point_id)?;
+        let start = std::time::Instant::now();
+        info!(%version, "Dispatching SendLocalList");
+
+        let result = match version {
+            OcppVersion::V16 => {
+                v16::send_local_list::send_local_list(
+                    &self.command_sender,
+                    charge_point_id,
+                    list_version,
+                    update_type,
+                    entries,
+                )
+                .await
+            }
+            OcppVersion::V201 | OcppVersion::V21 => {
+                v201::send_local_list::send_local_list(
+                    &self.command_sender,
+                    charge_point_id,
+                    list_version,
+                    update_type,
+                    entries,
+                )
+                .await
+            }
+        };
+        record_command_latency("send_local_list", start);
+        result
+    }
+
     // ─── Trigger Message ───────────────────────────────────────────────
 
     pub async fn trigger_message(
@@ -691,5 +734,16 @@ impl OcppOutboundPort for CommandDispatcher {
         charge_point_id: &str,
     ) -> Result<i32, CommandError> {
         CommandDispatcher::get_local_list_version(self, charge_point_id).await
+    }
+
+    async fn send_local_list(
+        &self,
+        charge_point_id: &str,
+        list_version: i32,
+        update_type: &str,
+        entries: Option<Vec<LocalAuthEntry>>,
+    ) -> Result<String, CommandError> {
+        CommandDispatcher::send_local_list(self, charge_point_id, list_version, update_type, entries)
+            .await
     }
 }

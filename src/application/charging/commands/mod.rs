@@ -86,6 +86,20 @@ pub struct ConfigurationResult {
     pub unknown_key: Vec<String>,
 }
 
+/// A single authorization entry for the local list (version-agnostic).
+///
+/// Used by `SendLocalList` across both v1.6 and v2.0.1.
+#[derive(Debug, Clone)]
+pub struct LocalAuthEntry {
+    pub id_tag: String,
+    /// Authorization status: "Accepted", "Blocked", "Expired", "Invalid", etc.
+    pub status: Option<String>,
+    /// ISO 8601 expiry date (optional).
+    pub expiry_date: Option<String>,
+    /// Parent IdTag (v1.6 only, ignored in v2.0.1).
+    pub parent_id_tag: Option<String>,
+}
+
 // ── Re-exports ─────────────────────────────────────────────────────
 
 pub use dispatcher::{

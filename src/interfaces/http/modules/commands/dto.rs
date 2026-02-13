@@ -110,6 +110,48 @@ pub struct LocalListVersionResponse {
     pub list_version: i32,
 }
 
+/// A single authorization entry to add to the local list.
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
+pub struct AuthorizationEntryDto {
+    /// The RFID / IdTag identifier (1–20 chars for v1.6, up to 36 for v2.0.1).
+    #[validate(length(min = 1, max = 36, message = "id_tag is required"))]
+    pub id_tag: String,
+    /// Authorization status: Accepted, Blocked, Expired, Invalid. Defaults to Accepted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// ISO 8601 expiry date-time (optional).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expiry_date: Option<String>,
+    /// Parent IdTag (v1.6 only, ignored in v2.0.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id_tag: Option<String>,
+}
+
+/// SendLocalList request body.
+///
+/// Sends a full or differential update of the local authorization list
+/// to the charge point. Works with both OCPP 1.6 and 2.0.1.
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct SendLocalListRequest {
+    /// The version number of the list after this update.
+    pub list_version: i32,
+    /// Update type: "Full" or "Differential".
+    #[validate(length(min = 1, message = "update_type is required (Full or Differential)"))]
+    pub update_type: String,
+    /// Authorization entries. Empty for Full = clear list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub local_authorization_list: Option<Vec<AuthorizationEntryDto>>,
+}
+
+/// SendLocalList response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SendLocalListResponse {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 // ── v2.0.1-specific DTOs ───────────────────────────────────────────
 
 /// A single variable to query — (component, variable) pair.

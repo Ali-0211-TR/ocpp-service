@@ -12,7 +12,8 @@ use async_trait::async_trait;
 
 use crate::application::charging::commands::dispatcher::ClearChargingProfileCriteria;
 use crate::application::charging::commands::{
-    Availability, CommandError, ConfigurationResult, DataTransferResult, ResetKind, TriggerType,
+    Availability, CommandError, ConfigurationResult, DataTransferResult, LocalAuthEntry, ResetKind,
+    TriggerType,
 };
 use crate::application::charging::commands::dispatcher::{
     GetVariablesResult, SetVariablesResult,
@@ -201,4 +202,15 @@ pub trait OcppOutboundPort: Send + Sync {
         &self,
         charge_point_id: &str,
     ) -> Result<i32, CommandError>;
+
+    /// Send (full or differential) local authorization list update.
+    ///
+    /// `update_type`: `"Full"` or `"Differential"`.
+    async fn send_local_list(
+        &self,
+        charge_point_id: &str,
+        list_version: i32,
+        update_type: &str,
+        entries: Option<Vec<LocalAuthEntry>>,
+    ) -> Result<String, CommandError>;
 }

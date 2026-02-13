@@ -181,6 +181,7 @@ impl Modify for SecurityAddon {
         commands::get_config,
         commands::change_config,
         commands::get_local_list_ver,
+        commands::send_local_list,
         commands::clear_auth_cache,
         commands::data_transfer_handler,
         // Transactions
@@ -250,6 +251,9 @@ impl Modify for SecurityAddon {
             commands::DataTransferRequest,
             commands::DataTransferResponse,
             commands::LocalListVersionResponse,
+            commands::SendLocalListRequest,
+            commands::SendLocalListResponse,
+            commands::AuthorizationEntryDto,
             commands::CommandResponse,
             commands::ConfigValue,
             commands::ConfigurationResponse,
@@ -366,6 +370,10 @@ pub fn create_api_router(
         .route(
             "/{charge_point_id}/local-list-version",
             get(commands::get_local_list_ver),
+        )
+        .route(
+            "/{charge_point_id}/local-list",
+            post(commands::send_local_list),
         )
         .route(
             "/{charge_point_id}/clear-cache",

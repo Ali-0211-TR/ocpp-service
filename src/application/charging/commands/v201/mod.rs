@@ -12,6 +12,7 @@ pub mod get_variables;
 pub mod remote_start;
 pub mod remote_stop;
 pub mod reset;
+pub mod send_local_list;
 pub mod set_charging_profile;
 pub mod set_variables;
 pub mod trigger_message;

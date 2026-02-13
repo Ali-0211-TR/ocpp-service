@@ -14,8 +14,9 @@ use super::dto::{
     ChangeAvailabilityRequest, ChangeConfigurationRequest, ClearChargingProfileRequest,
     CommandResponse, DataTransferRequest, DataTransferResponse, GetVariablesRequest,
     GetVariablesResponse, LocalListVersionResponse, RemoteStartRequest, RemoteStopRequest,
-    ResetRequest, SetChargingProfileRequest, SetVariablesRequest, SetVariablesResponse,
-    TriggerMessageRequest, UnlockConnectorRequest, VariableResultDto, SetVariableStatusDto,
+    ResetRequest, SendLocalListRequest, SendLocalListResponse, SetChargingProfileRequest,
+    SetVariablesRequest, SetVariablesResponse, TriggerMessageRequest, UnlockConnectorRequest,
+    VariableResultDto, SetVariableStatusDto,
 };
 use crate::application::events::{
     Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
@@ -687,6 +688,88 @@ pub async fn get_local_list_ver(
         Ok(version) => Ok(Json(ApiResponse::success(LocalListVersionResponse {
             list_version: version,
         }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        )),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points/{charge_point_id}/local-list",
+    tag = "Commands",
+    security(("bearer_auth" = []), ("api_key" = [])),
+    params(("charge_point_id" = String, Path, description = "Charge point ID")),
+    request_body = SendLocalListRequest,
+    responses(
+        (status = 200, description = "Result", body = ApiResponse<SendLocalListResponse>),
+        (status = 404, description = "Not connected"),
+        (status = 400, description = "Invalid request")
+    )
+)]
+pub async fn send_local_list(
+    State(state): State<CommandAppState>,
+    Path(charge_point_id): Path<String>,
+    Json(request): Json<SendLocalListRequest>,
+) -> Result<
+    Json<ApiResponse<SendLocalListResponse>>,
+    (StatusCode, Json<ApiResponse<SendLocalListResponse>>),
+> {
+    if !state.session_registry.is_connected(&charge_point_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error(format!(
+                "Charge point '{}' is not connected",
+                charge_point_id
+            ))),
+        ));
+    }
+
+    // Validate update_type
+    let update_type = request.update_type.to_lowercase();
+    if update_type != "full" && update_type != "differential" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(
+                "update_type must be 'Full' or 'Differential'",
+            )),
+        ));
+    }
+
+    // Convert DTO entries to domain LocalAuthEntry
+    let entries = request.local_authorization_list.map(|list| {
+        list.into_iter()
+            .map(|e| crate::application::charging::commands::LocalAuthEntry {
+                id_tag: e.id_tag,
+                status: e.status,
+                expiry_date: e.expiry_date,
+                parent_id_tag: e.parent_id_tag,
+            })
+            .collect()
+    });
+
+    match state
+        .command_dispatcher
+        .send_local_list(
+            &charge_point_id,
+            request.list_version,
+            &request.update_type,
+            entries,
+        )
+        .await
+    {
+        Ok(status_str) => {
+            let accepted = status_str.contains("Accepted");
+            Ok(Json(ApiResponse::success(SendLocalListResponse {
+                status: status_str,
+                message: if accepted {
+                    Some("Local authorization list updated".to_string())
+                } else {
+                    Some("Local list update failed or not supported".to_string())
+                },
+            })))
+        }
         Err(e) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse::error(e.to_string())),
