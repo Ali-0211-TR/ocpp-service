@@ -597,11 +597,12 @@ pub fn create_api_router(
         .nest("/api/v1/monitoring", monitoring_routes)
         // Notifications WebSocket
         .nest("/api/v1/notifications", notification_routes)
-        // Middleware
+        // Middleware (layers execute bottom-to-top: request_id → metrics → trace → cors → governor)
         .layer(GovernorLayer::new(api_governor_conf))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(metrics::http_metrics_middleware))
+        .layer(axum::middleware::from_fn(super::modules::request_id::request_id_middleware))
 }
 
 /// Build the CORS layer from application configuration.

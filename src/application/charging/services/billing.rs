@@ -8,6 +8,7 @@ use crate::domain::{
     BillingStatus, CostBreakdown, DomainResult, RepositoryProvider, Tariff, TransactionBilling,
 };
 use crate::shared::errors::DomainError;
+use crate::shared::utills::retry::{retry_with_backoff, RetryConfig};
 
 /// Service for billing operations
 pub struct BillingService {
@@ -19,13 +20,38 @@ impl BillingService {
         Self { repos }
     }
 
+    /// Calculate billing for a completed transaction.
+    ///
+    /// This is a critical operation — DB failures are retried with exponential backoff.
     pub async fn calculate_transaction_billing(
         &self,
         transaction_id: i32,
         tariff_id: Option<i32>,
     ) -> DomainResult<TransactionBilling> {
+        let repos = self.repos.clone();
+
+        retry_with_backoff(
+            RetryConfig::default(),
+            || {
+                let repos = repos.clone();
+                async move {
+                    Self::calculate_billing_inner(&repos, transaction_id, tariff_id).await
+                }
+            },
+            |err: &DomainError| err.is_transient(),
+            "calculate_transaction_billing",
+        )
+        .await
+    }
+
+    /// Inner billing calculation (no retry — called by the retry wrapper).
+    async fn calculate_billing_inner(
+        repos: &Arc<dyn RepositoryProvider>,
+        transaction_id: i32,
+        tariff_id: Option<i32>,
+    ) -> DomainResult<TransactionBilling> {
         let transaction =
-            self.repos
+            repos
                 .transactions()
                 .find_by_id(transaction_id)
                 .await?
@@ -42,7 +68,7 @@ impl BillingService {
         }
 
         let tariff = if let Some(id) = tariff_id {
-            self.repos
+            repos
                 .tariffs()
                 .find_by_id(id)
                 .await?
@@ -52,7 +78,7 @@ impl BillingService {
                     value: id.to_string(),
                 })?
         } else {
-            self.repos
+            repos
                 .tariffs()
                 .find_default()
                 .await?
@@ -80,7 +106,7 @@ impl BillingService {
             status: BillingStatus::Calculated,
         };
 
-        self.repos
+        repos
             .billing()
             .update_billing(billing.clone())
             .await?;
@@ -104,28 +130,42 @@ impl BillingService {
         self.repos.billing().get_billing(transaction_id).await
     }
 
+    /// Update billing status with retry for transient DB failures.
     pub async fn update_billing_status(
         &self,
         transaction_id: i32,
         status: BillingStatus,
     ) -> DomainResult<()> {
-        let mut billing = self
-            .repos
-            .billing()
-            .get_billing(transaction_id)
-            .await?
-            .ok_or_else(|| DomainError::NotFound {
-                entity: "Billing",
-                field: "transaction_id",
-                value: transaction_id.to_string(),
-            })?;
+        let repos = self.repos.clone();
+        let status_clone = status.clone();
 
-        billing.status = status.clone();
-        self.repos.billing().update_billing(billing).await?;
+        retry_with_backoff(
+            RetryConfig::default(),
+            || {
+                let repos = repos.clone();
+                let status = status_clone.clone();
+                async move {
+                    let mut billing = repos
+                        .billing()
+                        .get_billing(transaction_id)
+                        .await?
+                        .ok_or_else(|| DomainError::NotFound {
+                            entity: "Billing",
+                            field: "transaction_id",
+                            value: transaction_id.to_string(),
+                        })?;
 
-        info!(transaction_id, ?status, "Billing status updated");
+                    billing.status = status.clone();
+                    repos.billing().update_billing(billing).await?;
 
-        Ok(())
+                    info!(transaction_id, ?status, "Billing status updated");
+                    Ok(())
+                }
+            },
+            |err: &DomainError| err.is_transient(),
+            "update_billing_status",
+        )
+        .await
     }
 
     pub async fn get_tariff(&self, id: i32) -> DomainResult<Option<Tariff>> {

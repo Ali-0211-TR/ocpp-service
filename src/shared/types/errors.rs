@@ -28,6 +28,18 @@ pub enum DomainError {
     CommandTimeout(String),
 }
 
+impl DomainError {
+    /// Whether this error is likely transient (e.g. DB connection lost)
+    /// and the operation may succeed if retried.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            // DB errors mapped from repositories contain "Database error:" prefix
+            DomainError::Validation(msg) => msg.starts_with("Database error:"),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InfraError {
     #[error("Database error: {0}")]

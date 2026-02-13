@@ -289,10 +289,16 @@ async fn handle_connection(
     let charge_point_id = charge_point_id.unwrap_or_else(|| format!("CP_{}", addr.port()));
     let version = negotiated_version.unwrap_or(OcppVersion::V16);
 
-    info!(
-        "[{}] Connected from {} via {}",
-        charge_point_id, addr, version
+    // ── Correlation span for the entire WS connection lifecycle ──
+    let connection_span = tracing::info_span!(
+        "ws_connection",
+        charge_point_id = %charge_point_id,
+        ocpp_version = %version,
+        remote_addr = %addr,
     );
+    let _connection_guard = connection_span.enter();
+
+    info!("Connected from {} via {}", addr, version);
 
     // ── Whitelist check: verify charge_point_id exists in DB ──
     match repos.charge_points().find_by_id(&charge_point_id).await {
@@ -414,7 +420,17 @@ async fn handle_connection(
         while let Some(msg) = ws_receiver.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
-                    info!("[{}] <- {}", cp_id_recv, text);
+                    // Extract OCPP unique_id for per-message correlation
+                    let unique_id = extract_ocpp_unique_id(&text)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let msg_span = tracing::info_span!(
+                        "ocpp_msg",
+                        cp = %cp_id_recv,
+                        unique_id = %unique_id,
+                    );
+                    let _msg_guard = msg_span.enter();
+
+                    info!("<- {}", text);
                     metrics::counter!("ws_messages_total", "direction" => "inbound", "type" => "text").increment(1);
                     session_reg.touch(&cp_id_recv);
 
@@ -489,6 +505,20 @@ async fn handle_connection(
     info!("[{}] Disconnected", charge_point_id);
 
     Ok(())
+}
+
+// ── OCPP message correlation ───────────────────────────────────
+
+/// Extract the `unique_id` field from an OCPP JSON frame.
+///
+/// OCPP frames are JSON arrays: `[MessageTypeId, UniqueId, ...]`.
+/// The `unique_id` is always the second element (index 1).
+fn extract_ocpp_unique_id(text: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .and_then(|arr| arr.get(1).cloned())
+        .and_then(|v| v.as_str().map(String::from))
 }
 
 // ── WebSocket connection rate limiter ──────────────────────────

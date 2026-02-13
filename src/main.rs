@@ -63,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from(&app_cfg);
     let db_config = DatabaseConfig {
         url: app_cfg.database.connection_url(),
+        pool: app_cfg.database.pool.clone(),
     };
     info!("Database: {}", db_config.url);
 

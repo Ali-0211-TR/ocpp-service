@@ -87,6 +87,10 @@ pub struct DatabaseSettings {
     /// PostgreSQL settings (used when driver = "postgres")
     #[serde(default)]
     pub postgres: PostgresConfig,
+
+    /// Connection pool settings
+    #[serde(default)]
+    pub pool: DatabasePoolConfig,
 }
 
 /// SQLite-specific configuration
@@ -182,6 +186,30 @@ pub struct RateLimitConfig {
     pub ws_connections_per_minute: u32,
 }
 
+/// Database connection pool configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabasePoolConfig {
+    /// Maximum number of connections in the pool
+    #[serde(default = "default_pool_max_connections")]
+    pub max_connections: u32,
+
+    /// Minimum number of idle connections to keep in the pool
+    #[serde(default = "default_pool_min_connections")]
+    pub min_connections: u32,
+
+    /// Connection timeout in seconds
+    #[serde(default = "default_pool_connect_timeout")]
+    pub connect_timeout_seconds: u64,
+
+    /// Idle connection timeout in seconds (0 = no timeout)
+    #[serde(default = "default_pool_idle_timeout")]
+    pub idle_timeout_seconds: u64,
+
+    /// Maximum connection lifetime in seconds (0 = no limit)
+    #[serde(default = "default_pool_max_lifetime")]
+    pub max_lifetime_seconds: u64,
+}
+
 // ── Default value helpers ──────────────────────────────────────
 
 fn default_host() -> String {
@@ -247,6 +275,21 @@ fn default_login_rpm() -> u32 {
 fn default_ws_rpm() -> u32 {
     20
 }
+fn default_pool_max_connections() -> u32 {
+    10
+}
+fn default_pool_min_connections() -> u32 {
+    2
+}
+fn default_pool_connect_timeout() -> u64 {
+    5
+}
+fn default_pool_idle_timeout() -> u64 {
+    300
+}
+fn default_pool_max_lifetime() -> u64 {
+    1800
+}
 
 // ── Trait implementations ──────────────────────────────────────
 
@@ -283,6 +326,7 @@ impl Default for DatabaseSettings {
             driver: default_db_type(),
             sqlite: SqliteConfig::default(),
             postgres: PostgresConfig::default(),
+            pool: DatabasePoolConfig::default(),
         }
     }
 }
@@ -348,6 +392,18 @@ impl Default for RateLimitConfig {
             api_requests_per_minute: default_api_rpm(),
             login_attempts_per_minute: default_login_rpm(),
             ws_connections_per_minute: default_ws_rpm(),
+        }
+    }
+}
+
+impl Default for DatabasePoolConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: default_pool_max_connections(),
+            min_connections: default_pool_min_connections(),
+            connect_timeout_seconds: default_pool_connect_timeout(),
+            idle_timeout_seconds: default_pool_idle_timeout(),
+            max_lifetime_seconds: default_pool_max_lifetime(),
         }
     }
 }
