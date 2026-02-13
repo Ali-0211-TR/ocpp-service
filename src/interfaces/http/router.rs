@@ -36,8 +36,8 @@ use crate::interfaces::ws::{create_notification_state, ws_notifications_handler}
 use metrics_exporter_prometheus::PrometheusHandle;
 
 use super::modules::{
-    api_keys, auth, charge_points, commands, health, id_tags, metrics, monitoring, reservations,
-    tariffs, transactions, users,
+    analytics, api_keys, auth, charge_points, commands, health, id_tags, metrics, monitoring,
+    reservations, tariffs, transactions, users,
 };
 
 /// Unified state for all charge-point related routes (CP CRUD + commands + transactions).
@@ -225,6 +225,12 @@ impl Modify for SecurityAddon {
         reservations::cancel_reservation,
         reservations::list_reservations,
         reservations::get_reservation,
+        // Analytics
+        analytics::analytics_summary,
+        analytics::analytics_revenue,
+        analytics::analytics_energy,
+        analytics::analytics_peak_hours,
+        analytics::analytics_station_uptime,
     ),
     components(
         schemas(
@@ -322,6 +328,16 @@ impl Modify for SecurityAddon {
             crate::application::charging::services::device_report::DeviceReport,
             crate::application::charging::services::device_report::ReportVariable,
             crate::application::charging::services::device_report::VariableAttributeEntry,
+            // Analytics
+            analytics::AnalyticsSummary,
+            analytics::RevenueResponse,
+            analytics::RevenueBucket,
+            analytics::EnergyResponse,
+            analytics::EnergyBucket,
+            analytics::PeakHoursResponse,
+            analytics::PeakHourEntry,
+            analytics::StationUptimeResponse,
+            analytics::StationUptimeEntry,
             // Reservations
             reservations::CreateReservationRequest,
             reservations::CreateReservationResponse,
@@ -343,6 +359,7 @@ impl Modify for SecurityAddon {
         (name = "Commands", description = "OCPP 1.6 remote commands to charge points via WebSocket"),
         (name = "Transactions", description = "Charging session (transaction) management"),
         (name = "Reservations", description = "Connector/EVSE reservation management (ReserveNow / CancelReservation)"),
+        (name = "Analytics", description = "Dashboard analytics: summary, revenue, energy, peak hours, station uptime"),
         (name = "WebSocket Notifications", description = "Real-time event notifications via WebSocket"),
     ),
     info(
@@ -709,10 +726,27 @@ pub fn create_api_router(
         .route("/heartbeats", get(monitoring::get_heartbeat_statuses))
         .route("/online", get(monitoring::get_online_charge_points))
         .layer(middleware::from_fn_with_state(
-            middleware_state,
+            middleware_state.clone(),
             auth_middleware,
         ))
         .with_state(monitoring_state);
+
+    // Analytics routes (protected)
+    let analytics_state = analytics::AnalyticsState {
+        db: db.clone(),
+        session_registry: session_registry.clone(),
+    };
+    let analytics_routes = Router::new()
+        .route("/summary", get(analytics::analytics_summary))
+        .route("/revenue", get(analytics::analytics_revenue))
+        .route("/energy", get(analytics::analytics_energy))
+        .route("/peak-hours", get(analytics::analytics_peak_hours))
+        .route("/station-uptime", get(analytics::analytics_station_uptime))
+        .layer(middleware::from_fn_with_state(
+            middleware_state.clone(),
+            auth_middleware,
+        ))
+        .with_state(analytics_state);
 
     // Notification WebSocket routes (no auth for WebSocket upgrade)
     let notification_state = create_notification_state(event_bus);
@@ -767,6 +801,8 @@ pub fn create_api_router(
         .nest("/api/v1/reservations", reservation_routes)
         // Monitoring
         .nest("/api/v1/monitoring", monitoring_routes)
+        // Analytics
+        .nest("/api/v1/analytics", analytics_routes)
         // Notifications WebSocket
         .nest("/api/v1/notifications", notification_routes)
         // Middleware (layers execute bottom-to-top: request_id → metrics → trace → cors → governor)
