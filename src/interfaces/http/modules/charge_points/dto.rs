@@ -115,6 +115,27 @@ pub struct CreateConnectorRequest {
     pub connector_id: u32,
 }
 
+/// Request body for creating a charge point via REST API
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct CreateChargePointRequest {
+    /// Unique charge point identity (e.g. "CP001")
+    #[validate(length(min = 1, max = 64, message = "id must be 1–64 characters"))]
+    pub id: String,
+    /// Vendor name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>,
+    /// Model name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Serial number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serial_number: Option<String>,
+    /// Number of connectors to auto-create (1-based)
+    #[serde(default)]
+    #[validate(range(min = 0, max = 32, message = "num_connectors must be 0–32"))]
+    pub num_connectors: u32,
+}
+
 /// Charge point statistics
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChargePointStats {

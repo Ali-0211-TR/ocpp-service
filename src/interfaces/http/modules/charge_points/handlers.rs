@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 
-use super::dto::{ChargePointDto, ChargePointStats, ConnectorDto, CreateConnectorRequest, SetPasswordRequest, SetPasswordResponse};
+use super::dto::{ChargePointDto, ChargePointStats, ConnectorDto, CreateChargePointRequest, CreateConnectorRequest, SetPasswordRequest, SetPasswordResponse};
 use crate::application::SharedSessionRegistry;
 use crate::domain::RepositoryProvider;
 use crate::interfaces::http::common::ApiResponse;
@@ -54,6 +54,73 @@ pub async fn list_charge_points(
             Json(ApiResponse::error(e.to_string())),
         )),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/charge-points",
+    tag = "Charge Points",
+    request_body = CreateChargePointRequest,
+    responses(
+        (status = 201, description = "Charge point created", body = ApiResponse<ChargePointDto>),
+        (status = 409, description = "Already exists"),
+        (status = 422, description = "Validation error")
+    ),
+    security(("bearer_auth" = []), ("api_key" = []))
+)]
+pub async fn create_charge_point(
+    State(state): State<AppState>,
+    ValidatedJson(body): ValidatedJson<CreateChargePointRequest>,
+) -> Result<
+    (StatusCode, Json<ApiResponse<ChargePointDto>>),
+    (StatusCode, Json<ApiResponse<ChargePointDto>>),
+> {
+    use crate::domain::ChargePoint;
+
+    // Check if already exists
+    match state.repos.charge_points().find_by_id(&body.id).await {
+        Ok(Some(_)) => {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(ApiResponse::error(format!(
+                    "Charge point '{}' already exists",
+                    body.id
+                ))),
+            ));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(e.to_string())),
+            ));
+        }
+    }
+
+    // Create domain entity
+    let mut cp = ChargePoint::new(&body.id);
+    cp.vendor = body.vendor;
+    cp.model = body.model;
+    cp.serial_number = body.serial_number;
+
+    // Auto-create connectors (1-based)
+    for i in 1..=body.num_connectors {
+        cp.add_connector(i);
+    }
+
+    // Save to repository
+    if let Err(e) = state.repos.charge_points().save(cp.clone()).await {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(e.to_string())),
+        ));
+    }
+
+    let is_online = state.session_registry.is_connected(&cp.id);
+    Ok((
+        StatusCode::CREATED,
+        Json(ApiResponse::success(ChargePointDto::from_domain(cp, is_online))),
+    ))
 }
 
 #[utoipa::path(

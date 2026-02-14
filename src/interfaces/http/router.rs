@@ -168,6 +168,7 @@ impl Modify for SecurityAddon {
         tariffs::preview_cost,
         // Charge Points
         charge_points::list_charge_points,
+        charge_points::create_charge_point,
         charge_points::get_charge_point,
         charge_points::delete_charge_point,
         charge_points::get_charge_point_stats,
@@ -265,6 +266,7 @@ impl Modify for SecurityAddon {
             charge_points::ChargePointDto,
             charge_points::ConnectorDto,
             charge_points::ChargePointStats,
+            charge_points::CreateChargePointRequest,
             charge_points::SetPasswordRequest,
             charge_points::SetPasswordResponse,
             // Transactions
@@ -407,7 +409,7 @@ pub fn create_api_router(
     // A SINGLE router for every /api/v1/charge-points/* route.
     let charge_point_routes = Router::new()
         // --- CP CRUD (uses State<AppState> via FromRef) ---
-        .route("/", get(charge_points::list_charge_points))
+        .route("/", get(charge_points::list_charge_points).post(charge_points::create_charge_point))
         .route("/stats", get(charge_points::get_charge_point_stats))
         .route("/online", get(charge_points::get_online_charge_points))
         .route(
