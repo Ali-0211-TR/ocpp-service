@@ -103,6 +103,8 @@ pub struct TransactionStartedEvent {
     pub id_tag: String,
     pub meter_start: i32,
     pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +118,8 @@ pub struct TransactionStoppedEvent {
     pub currency: String,
     pub reason: Option<String>,
     pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +147,8 @@ pub struct MeterValuesEvent {
     pub power_w: Option<f64>,
     pub soc: Option<f64>,
     pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_order_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

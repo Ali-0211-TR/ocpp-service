@@ -11,6 +11,8 @@ use crate::domain::{ChargePoint, Connector, ConnectorStatus};
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChargePointDto {
     pub id: String,
+    /// Identity (same as id, for backward compatibility)
+    pub identity: String,
     /// OCPP protocol version: "1.6", "2.0.1", "2.1"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ocpp_version: Option<String>,
@@ -40,8 +42,10 @@ pub struct ChargePointDto {
 
 impl ChargePointDto {
     pub fn from_domain(cp: ChargePoint, is_online: bool) -> Self {
+        let identity = cp.id.clone();
         Self {
             id: cp.id,
+            identity,
             ocpp_version: cp.ocpp_version.map(|v| v.version_string().to_string()),
             vendor: cp.vendor,
             model: cp.model,
@@ -68,6 +72,8 @@ impl ChargePointDto {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ConnectorDto {
     pub id: u32,
+    /// Alias for id (for backward compatibility)
+    pub connector_id: u32,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
@@ -79,6 +85,7 @@ impl ConnectorDto {
     pub fn from_domain(connector: Connector) -> Self {
         Self {
             id: connector.id,
+            connector_id: connector.id,
             status: connector_status_to_string(&connector.status),
             error_code: connector.error_code,
             error_info: connector.info,

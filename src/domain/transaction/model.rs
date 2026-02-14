@@ -78,6 +78,8 @@ pub struct Transaction {
     pub limit_type: Option<ChargingLimitType>,
     /// Charging limit value
     pub limit_value: Option<f64>,
+    /// External order ID from integrating system (e.g. GSMS order ID)
+    pub external_order_id: Option<String>,
 }
 
 impl Transaction {
@@ -105,6 +107,7 @@ impl Transaction {
             last_meter_update: None,
             limit_type: None,
             limit_value: None,
+            external_order_id: None,
         }
     }
 
@@ -190,6 +193,14 @@ mod tests {
         assert_eq!(tx.meter_start, 1000);
         assert!(tx.meter_stop.is_none());
         assert!(tx.stopped_at.is_none());
+        assert!(tx.external_order_id.is_none());
+    }
+
+    #[test]
+    fn new_transaction_with_external_order_id() {
+        let mut tx = sample_tx();
+        tx.external_order_id = Some("GSMS-ORDER-123".to_string());
+        assert_eq!(tx.external_order_id.as_deref(), Some("GSMS-ORDER-123"));
     }
 
     #[test]

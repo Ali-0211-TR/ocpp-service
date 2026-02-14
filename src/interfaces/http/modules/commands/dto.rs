@@ -14,6 +14,8 @@ pub struct RemoteStartRequest {
     pub limit_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_order_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Validate, ToSchema)]

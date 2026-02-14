@@ -111,6 +111,7 @@ pub async fn remote_start(
                             connector_id,
                             limit_type,
                             limit_value,
+                            request.external_order_id.clone(),
                         );
                         info!(
                             "Set pending charging limit for {}:{} - {} = {}",
@@ -252,6 +253,7 @@ pub async fn remote_stop(
                                     currency,
                                     reason: Some("RemoteStop".to_string()),
                                     timestamp: Utc::now(),
+                                    external_order_id: tx.external_order_id.clone(),
                                 },
                             ));
                         }

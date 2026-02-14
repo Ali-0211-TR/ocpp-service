@@ -16,6 +16,7 @@ use crate::shared::errors::DomainError;
 pub struct PendingChargingLimit {
     pub limit_type: ChargingLimitType,
     pub limit_value: f64,
+    pub external_order_id: Option<String>,
 }
 
 /// Service for charge point business operations
@@ -38,12 +39,14 @@ impl ChargePointService {
         connector_id: u32,
         limit_type: ChargingLimitType,
         limit_value: f64,
+        external_order_id: Option<String>,
     ) {
         self.pending_limits.insert(
             (charge_point_id.to_string(), connector_id),
             PendingChargingLimit {
                 limit_type,
                 limit_value,
+                external_order_id,
             },
         );
     }
@@ -218,6 +221,7 @@ impl ChargePointService {
             );
             transaction.limit_type = Some(limit.limit_type);
             transaction.limit_value = Some(limit.limit_value);
+            transaction.external_order_id = limit.external_order_id;
         }
 
         self.repos.transactions().save(transaction.clone()).await?;

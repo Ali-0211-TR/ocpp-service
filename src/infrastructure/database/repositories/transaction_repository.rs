@@ -59,6 +59,7 @@ fn model_to_domain(t: transaction::Model) -> Transaction {
         last_meter_update: t.last_meter_update,
         limit_type: t.limit_type.as_deref().and_then(ChargingLimitType::from_str),
         limit_value: t.limit_value,
+        external_order_id: t.external_order_id,
     }
 }
 
@@ -99,6 +100,7 @@ impl TransactionRepository for SeaOrmTransactionRepository {
             last_meter_update: Set(tx.last_meter_update),
             limit_type: Set(tx.limit_type.as_ref().map(|lt| lt.as_str().to_string())),
             limit_value: Set(tx.limit_value),
+            external_order_id: Set(tx.external_order_id),
         };
         model.insert(&self.db).await.map_err(db_err)?;
         Ok(())
@@ -155,6 +157,7 @@ impl TransactionRepository for SeaOrmTransactionRepository {
             last_meter_update: Set(tx.last_meter_update),
             limit_type: Set(tx.limit_type.as_ref().map(|lt| lt.as_str().to_string())),
             limit_value: Set(tx.limit_value),
+            external_order_id: Set(tx.external_order_id),
         };
         model.update(&self.db).await.map_err(db_err)?;
         Ok(())

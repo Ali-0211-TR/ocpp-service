@@ -141,17 +141,17 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
         }
     }
 
-    let energy_consumed_wh = if let (Some(_tx_id), Some(energy)) = (transaction_id, energy_wh) {
+    let (energy_consumed_wh, external_order_id) = if let (Some(_tx_id), Some(energy)) = (transaction_id, energy_wh) {
         match handler
             .service
             .get_active_transaction_for_connector(&handler.charge_point_id, req.connector_id)
             .await
         {
-            Ok(Some(tx)) => Some(energy - tx.meter_start as f64),
-            _ => None,
+            Ok(Some(tx)) => (Some(energy - tx.meter_start as f64), tx.external_order_id.clone()),
+            _ => (None, None),
         }
     } else {
-        None
+        (None, None)
     };
 
     handler
@@ -169,6 +169,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
                 .first()
                 .map(|mv| mv.timestamp)
                 .unwrap_or_else(chrono::Utc::now),
+            external_order_id,
         }));
 
     serde_json::to_value(&MeterValuesResponse {}).unwrap_or_default()

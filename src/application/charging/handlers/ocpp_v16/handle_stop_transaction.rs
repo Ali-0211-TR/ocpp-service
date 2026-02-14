@@ -84,6 +84,12 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
         true
     };
 
+    // Look up external_order_id before stopping the transaction
+    let external_order_id = match handler.service.get_transaction(transaction_id).await {
+        Ok(Some(tx)) => tx.external_order_id.clone(),
+        _ => None,
+    };
+
     let stop_result = handler
         .service
         .stop_transaction(
@@ -150,6 +156,7 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
                         currency,
                         reason: req.reason.as_ref().map(|r| format!("{:?}", r)),
                         timestamp: req.timestamp,
+                        external_order_id: external_order_id.clone(),
                     }));
             }
             Err(e) => {
@@ -172,6 +179,7 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
                         currency: "UZS".to_string(),
                         reason: req.reason.as_ref().map(|r| format!("{:?}", r)),
                         timestamp: req.timestamp,
+                        external_order_id: external_order_id.clone(),
                     }));
             }
         }

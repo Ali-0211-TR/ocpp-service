@@ -94,6 +94,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV201, payload: &Value) -> 
     // Find active transaction for this EVSE and update meter data
     let mut transaction_id: Option<i32> = None;
     let mut energy_consumed_wh: Option<f64> = None;
+    let mut external_order_id: Option<String> = None;
 
     match handler
         .service
@@ -102,6 +103,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV201, payload: &Value) -> 
     {
         Ok(Some(tx)) => {
             transaction_id = Some(tx.id);
+            external_order_id = tx.external_order_id.clone();
 
             let _ = handler
                 .service
@@ -148,6 +150,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV201, payload: &Value) -> 
                 .first()
                 .map(|mv| mv.timestamp)
                 .unwrap_or_else(chrono::Utc::now),
+            external_order_id,
         }));
 
     serde_json::to_value(&MeterValuesResponse {}).unwrap_or_default()

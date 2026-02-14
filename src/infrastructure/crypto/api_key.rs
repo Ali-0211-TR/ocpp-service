@@ -41,25 +41,78 @@ pub struct GeneratedApiKey {
     pub info: ApiKeyInfo,
 }
 
-/// Generate a new API key
+/// Slugify a name for embedding in the API key.
+/// Converts "My Integration" → "my-integration", max 24 chars.
+fn slugify_name(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    // Collapse multiple dashes
+    let mut prev_dash = false;
+    let collapsed: String = slug
+        .chars()
+        .filter(|&c| {
+            if c == '-' {
+                if prev_dash {
+                    return false;
+                }
+                prev_dash = true;
+            } else {
+                prev_dash = false;
+            }
+            true
+        })
+        .collect();
+    // Trim dashes from edges, limit to 24 chars
+    let trimmed = collapsed.trim_matches('-');
+    if trimmed.len() > 24 {
+        trimmed[..24].trim_end_matches('-').to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Generate a new API key with semantic format:
+/// `txocpp_<name-slug>_<random-hex>`
+///
+/// Example: `txocpp_texnouz-gsms_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4`
 pub fn generate_api_key(name: &str, user_id: Option<&str>, scopes: Vec<String>) -> GeneratedApiKey {
     let mut rng = rand::thread_rng();
 
-    // Generate random bytes for the key
-    let random_bytes: [u8; 32] = rng.gen();
-    let key_suffix = hex::encode(random_bytes);
+    // Generate random bytes for the key (16 bytes = 32 hex chars)
+    let random_bytes: [u8; 16] = rng.gen();
+    let random_hex = hex::encode(random_bytes);
 
-    // Full key: prefix + random hex
-    let full_key = format!("{}{}", API_KEY_PREFIX, key_suffix);
+    // Build semantic key: txocpp_<slug>_<random>
+    let name_slug = slugify_name(name);
+    let full_key = if name_slug.is_empty() {
+        format!("{}{}", API_KEY_PREFIX, random_hex)
+    } else {
+        format!("{}{}_{}", API_KEY_PREFIX, name_slug, random_hex)
+    };
 
     // Hash the key for storage
     let key_hash = hash_api_key(&full_key);
+
+    // Create prefix for display (first 12 chars of random part)
+    let display_prefix = if name_slug.is_empty() {
+        format!("{}{}...", API_KEY_PREFIX, &random_hex[..8])
+    } else {
+        format!("{}{}_{}...", API_KEY_PREFIX, name_slug, &random_hex[..8])
+    };
 
     // Create key info
     let info = ApiKeyInfo {
         id: uuid::Uuid::new_v4().to_string(),
         name: name.to_string(),
-        prefix: format!("{}{}...", API_KEY_PREFIX, &key_suffix[..8]),
+        prefix: display_prefix,
         key_hash,
         user_id: user_id.map(|s| s.to_string()),
         scopes,
@@ -75,16 +128,12 @@ pub fn generate_api_key(name: &str, user_id: Option<&str>, scopes: Vec<String>) 
     }
 }
 
-/// Hash an API key for storage
+/// Hash an API key for storage using SHA-256
 pub fn hash_api_key(key: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    // For API keys, we use a simple hash since we need fast lookups
-    // In production, consider using SHA-256 or similar
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    format!("{:x}", hasher.finish())
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 /// Verify an API key against a stored hash

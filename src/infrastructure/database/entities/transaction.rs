@@ -123,6 +123,10 @@ pub struct Model {
     /// Limit value (kWh for energy, smallest currency unit for amount, % for soc)
     #[sea_orm(nullable, column_type = "Double")]
     pub limit_value: Option<f64>,
+
+    /// External order ID from integrating system (e.g. GSMS)
+    #[sea_orm(nullable)]
+    pub external_order_id: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -76,6 +76,11 @@ pub async fn list_transactions_for_charge_point(
                             return false;
                         }
                     }
+                    if let Some(ref eid) = filter.external_order_id {
+                        if t.external_order_id.as_deref() != Some(eid.as_str()) {
+                            return false;
+                        }
+                    }
                     true
                 })
                 .collect();
@@ -380,6 +385,7 @@ pub async fn force_stop_transaction(
             currency,
             reason: Some("ForceStop".to_string()),
             timestamp: Utc::now(),
+            external_order_id: tx.external_order_id.clone(),
         },
     ));
 

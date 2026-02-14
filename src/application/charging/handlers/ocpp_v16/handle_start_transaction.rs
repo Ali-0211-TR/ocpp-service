@@ -65,6 +65,7 @@ pub async fn handle_start_transaction(handler: &OcppHandlerV16, payload: &Value)
                     id_tag: req.id_tag.clone(),
                     meter_start: req.meter_start,
                     timestamp: req.timestamp,
+                    external_order_id: transaction.external_order_id.clone(),
                 }));
 
             let response = StartTransactionResponse {

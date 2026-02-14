@@ -36,6 +36,8 @@ pub struct TransactionDto {
     pub limit_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_order_id: Option<String>,
 }
 
 impl TransactionDto {
@@ -59,6 +61,7 @@ impl TransactionDto {
             last_meter_update: tx.last_meter_update,
             limit_type: tx.limit_type.as_ref().map(|lt| lt.as_str().to_string()),
             limit_value: tx.limit_value,
+            external_order_id: tx.external_order_id,
         }
     }
 }
@@ -79,4 +82,5 @@ pub struct TransactionFilter {
     pub status: Option<String>,
     pub from_date: Option<DateTime<Utc>>,
     pub to_date: Option<DateTime<Utc>>,
+    pub external_order_id: Option<String>,
 }

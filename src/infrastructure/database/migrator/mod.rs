@@ -15,6 +15,7 @@ mod m20240101_000010_add_ocpp_version_to_charge_points;
 mod m20240101_000011_add_password_to_charge_points;
 mod m20240101_000012_create_reservations;
 mod m20240101_000013_create_charging_profiles;
+mod m20240101_000014_add_external_order_id_to_transactions;
 
 pub struct Migrator;
 
@@ -35,6 +36,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20240101_000011_add_password_to_charge_points::Migration),
             Box::new(m20240101_000012_create_reservations::Migration),
             Box::new(m20240101_000013_create_charging_profiles::Migration),
+            Box::new(m20240101_000014_add_external_order_id_to_transactions::Migration),
         ]
     }
 }

@@ -111,6 +111,7 @@ async fn handle_started(
                     id_tag: id_tag.to_string(),
                     meter_start,
                     timestamp: req.timestamp,
+                    external_order_id: transaction.external_order_id.clone(),
                 }));
 
             build_response(Some(AuthorizationStatusEnumType::Accepted))
@@ -204,6 +205,7 @@ async fn handle_updated(
                     power_w,
                     soc,
                     timestamp: req.timestamp,
+                    external_order_id: tx.external_order_id.clone(),
                 }));
         }
         Ok(None) => {
@@ -315,6 +317,7 @@ async fn handle_ended(
                                 currency,
                                 reason: reason.clone(),
                                 timestamp: req.timestamp,
+                                external_order_id: tx.external_order_id.clone(),
                             },
                         ));
                     }
@@ -341,6 +344,7 @@ async fn handle_ended(
                                 currency: "UZS".to_string(),
                                 reason,
                                 timestamp: req.timestamp,
+                                external_order_id: tx.external_order_id.clone(),
                             },
                         ));
                     }
