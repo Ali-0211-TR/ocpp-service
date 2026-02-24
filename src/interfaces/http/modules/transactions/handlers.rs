@@ -12,9 +12,11 @@ use tracing::{info, warn};
 
 use super::dto::{TransactionDto, TransactionFilter};
 use crate::application::events::{
-    Event, SharedEventBus, TransactionBilledEvent, TransactionStoppedEvent,
+    ConnectorStatusChangedEvent, Event, SharedEventBus, TransactionBilledEvent,
+    TransactionStoppedEvent,
 };
 use crate::application::BillingService;
+use crate::domain::charge_point::ConnectorStatus;
 use crate::domain::RepositoryProvider;
 use crate::interfaces::http::common::{ApiResponse, PaginatedResponse, PaginationParams};
 
@@ -388,6 +390,34 @@ pub async fn force_stop_transaction(
             external_order_id: tx.external_order_id.clone(),
         },
     ));
+
+    // Update connector status to Available since the transaction is force-stopped
+    // (the charger is likely disconnected and won't send StatusNotification itself)
+    if let Ok(Some(mut cp)) = state
+        .repos
+        .charge_points()
+        .find_by_id(&tx.charge_point_id)
+        .await
+    {
+        cp.update_connector_status(tx.connector_id as u32, ConnectorStatus::Available);
+        if let Err(e) = state.repos.charge_points().update(cp).await {
+            warn!(
+                "Failed to update connector {} status after force-stop: {}",
+                tx.connector_id, e
+            );
+        } else {
+            state.event_bus.publish(Event::ConnectorStatusChanged(
+                ConnectorStatusChangedEvent {
+                    charge_point_id: tx.charge_point_id.clone(),
+                    connector_id: tx.connector_id as u32,
+                    status: "Available".to_string(),
+                    error_code: None,
+                    info: Some("Force-stopped transaction".to_string()),
+                    timestamp: Utc::now(),
+                },
+            ));
+        }
+    }
 
     Ok(Json(ApiResponse::success(TransactionDto::from_domain(tx))))
 }

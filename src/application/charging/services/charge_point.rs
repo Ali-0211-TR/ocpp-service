@@ -188,7 +188,15 @@ impl ChargePointService {
     }
 
     pub async fn authorize(&self, id_tag: &str) -> DomainResult<bool> {
-        self.repos.id_tags().is_valid(id_tag).await
+        let valid = self.repos.id_tags().is_valid(id_tag).await?;
+        if valid {
+            return Ok(true);
+        }
+        // Auto-register unknown id_tags so that integrations (GSMS, etc.)
+        // don't need to pre-seed tags via a separate API call.
+        tracing::info!(id_tag, "Auto-registering unknown id_tag");
+        self.repos.id_tags().add(id_tag.to_string()).await?;
+        Ok(true)
     }
 
     pub async fn get_auth_status(&self, id_tag: &str) -> DomainResult<Option<String>> {
