@@ -70,7 +70,10 @@ rust_decimal = "1"
 tower_governor = { version = "0.8", features = ["axum", "tracing"] }
 
 # Metrics / Prometheus
+# Disable default features to avoid pulling in hyper-rustls → aws-lc-rs
+# which requires NASM + cmake on Windows.
+# Only http-listener is needed (no push-gateway).
 metrics = "0.24"
-metrics-exporter-prometheus = "0.16"
+metrics-exporter-prometheus = { version = "0.16", default-features = false, features = ["http-listener"] }
 
 
