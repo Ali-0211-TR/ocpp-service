@@ -102,25 +102,32 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
                         "Charging limit reached! Sending RemoteStop."
                     );
 
-                    let remote_stop_payload = serde_json::json!({
-                        "transactionId": tx_id,
+                    // Spawn in a separate task to avoid deadlocking the WS read loop.
+                    // send_command() awaits the charge point's CallResult response, but
+                    // that response can only arrive through this same read loop — so
+                    // awaiting it inline would block forever.
+                    let cmd = handler.command_sender.clone();
+                    let cp_id = handler.charge_point_id.clone();
+                    tokio::spawn(async move {
+                        let remote_stop_payload = serde_json::json!({
+                            "transactionId": tx_id,
+                        });
+                        if let Err(e) = cmd
+                            .send_command(
+                                &cp_id,
+                                "RemoteStopTransaction",
+                                remote_stop_payload,
+                            )
+                            .await
+                        {
+                            error!(
+                                charge_point_id = cp_id.as_str(),
+                                transaction_id = tx_id,
+                                error = ?e,
+                                "Failed to send RemoteStop for limit-reached transaction"
+                            );
+                        }
                     });
-                    if let Err(e) = handler
-                        .command_sender
-                        .send_command(
-                            &handler.charge_point_id,
-                            "RemoteStopTransaction",
-                            remote_stop_payload,
-                        )
-                        .await
-                    {
-                        error!(
-                            charge_point_id = handler.charge_point_id.as_str(),
-                            transaction_id = tx_id,
-                            error = ?e,
-                            "Failed to send RemoteStop for limit-reached transaction"
-                        );
-                    }
                 }
             }
             Ok(None) => {
@@ -174,25 +181,29 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
                                 "Charging limit reached (no txId in MeterValues)! Sending RemoteStop."
                             );
 
-                            let remote_stop_payload = serde_json::json!({
-                                "transactionId": tx.id,
+                            let cmd = handler.command_sender.clone();
+                            let cp_id = handler.charge_point_id.clone();
+                            let t_id = tx.id;
+                            tokio::spawn(async move {
+                                let remote_stop_payload = serde_json::json!({
+                                    "transactionId": t_id,
+                                });
+                                if let Err(e) = cmd
+                                    .send_command(
+                                        &cp_id,
+                                        "RemoteStopTransaction",
+                                        remote_stop_payload,
+                                    )
+                                    .await
+                                {
+                                    error!(
+                                        charge_point_id = cp_id.as_str(),
+                                        transaction_id = t_id,
+                                        error = ?e,
+                                        "Failed to send RemoteStop for limit-reached transaction (fallback)"
+                                    );
+                                }
                             });
-                            if let Err(e) = handler
-                                .command_sender
-                                .send_command(
-                                    &handler.charge_point_id,
-                                    "RemoteStopTransaction",
-                                    remote_stop_payload,
-                                )
-                                .await
-                            {
-                                error!(
-                                    charge_point_id = handler.charge_point_id.as_str(),
-                                    transaction_id = tx.id,
-                                    error = ?e,
-                                    "Failed to send RemoteStop for limit-reached transaction (fallback)"
-                                );
-                            }
                         }
                     }
                 }
