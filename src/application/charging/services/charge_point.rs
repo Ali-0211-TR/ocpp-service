@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use tracing::info;
 
 use crate::domain::{
@@ -23,6 +23,9 @@ pub struct PendingChargingLimit {
 pub struct ChargePointService {
     repos: Arc<dyn RepositoryProvider>,
     pending_limits: DashMap<(String, u32), PendingChargingLimit>,
+    /// Transaction IDs for which a RemoteStop has already been sent
+    /// (prevents re-sending on every MeterValues after the limit is reached).
+    stop_sent: DashSet<i32>,
 }
 
 impl ChargePointService {
@@ -30,7 +33,20 @@ impl ChargePointService {
         Self {
             repos,
             pending_limits: DashMap::new(),
+            stop_sent: DashSet::new(),
         }
+    }
+
+    /// Returns `true` if this is the first time we're marking stop-sent for this
+    /// transaction (i.e. we should actually send RemoteStop).
+    /// Returns `false` if a stop has already been sent — caller should skip.
+    pub fn mark_stop_sent(&self, transaction_id: i32) -> bool {
+        self.stop_sent.insert(transaction_id)
+    }
+
+    /// Clear the stop-sent flag when the transaction actually stops.
+    pub fn clear_stop_sent(&self, transaction_id: i32) {
+        self.stop_sent.remove(&transaction_id);
     }
 
     pub fn set_pending_limit(

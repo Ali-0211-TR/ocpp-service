@@ -93,7 +93,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
             .await
         {
             Ok(Some(tx)) => {
-                if tx.is_limit_reached() {
+                if tx.is_limit_reached() && handler.service.mark_stop_sent(tx_id) {
                     warn!(
                         charge_point_id = handler.charge_point_id.as_str(),
                         transaction_id = tx_id,
@@ -172,7 +172,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
                         )
                         .await
                     {
-                        if updated_tx.is_limit_reached() {
+                        if updated_tx.is_limit_reached() && handler.service.mark_stop_sent(tx.id) {
                             warn!(
                                 charge_point_id = handler.charge_point_id.as_str(),
                                 transaction_id = tx.id,

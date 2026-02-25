@@ -99,6 +99,9 @@ pub async fn handle_stop_transaction(handler: &OcppHandlerV16, payload: &Value) 
         )
         .await;
 
+    // Clean up the stop-sent guard so it doesn't leak memory.
+    handler.service.clear_stop_sent(transaction_id);
+
     if let Err(e) = &stop_result {
         error!(
             charge_point_id = handler.charge_point_id.as_str(),
