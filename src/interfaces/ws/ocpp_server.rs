@@ -202,7 +202,7 @@ impl OcppServer {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         for cp_id in connected {
-            self.session_registry.unregister(&cp_id);
+            self.session_registry.force_unregister(&cp_id);
         }
 
         info!("✅ WebSocket server shutdown complete");
@@ -353,7 +353,7 @@ async fn handle_connection(
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
     // ── Register session (with eviction / debounce) ────────
-    match session_registry.register(&charge_point_id, tx, version) {
+    let connection_id = match session_registry.register(&charge_point_id, tx, version) {
         RegisterResult::Debounced {
             seconds_remaining, ..
         } => {
@@ -368,7 +368,7 @@ async fn handle_connection(
             let _ = ws_sender.send(Message::Close(Some(close_frame))).await;
             return Ok(());
         }
-        RegisterResult::Evicted(old) => {
+        RegisterResult::Evicted { evicted: old, connection_id } => {
             warn!(
                 "[{}] Evicted previous session (was {} since {}, last active {})",
                 charge_point_id, old.ocpp_version, old.connected_at, old.last_activity
@@ -384,11 +384,13 @@ async fn handle_connection(
                     reason: Some("Evicted by new connection".to_string()),
                 },
             ));
+            connection_id
         }
-        RegisterResult::New => {
+        RegisterResult::New { connection_id } => {
             // First connection — nothing to clean up
+            connection_id
         }
-    }
+    };
 
     event_bus.publish(Event::ChargePointConnected(ChargePointConnectedEvent {
         charge_point_id: charge_point_id.clone(),
@@ -443,6 +445,7 @@ async fn handle_connection(
     // Incoming message receiver task
     let cp_id_recv = charge_point_id.clone();
     let session_reg = session_registry.clone();
+    let recv_conn_id = connection_id;
     let recv_task = tokio::spawn(async move {
         while let Some(msg) = ws_receiver.next().await {
             match msg {
@@ -499,7 +502,7 @@ async fn handle_connection(
             }
         }
 
-        session_reg.unregister(&cp_id_recv);
+        session_reg.unregister(&cp_id_recv, recv_conn_id);
     });
 
     // Wait for tasks or shutdown
@@ -519,7 +522,7 @@ async fn handle_connection(
     }
 
     // Cleanup
-    session_registry.unregister(&charge_point_id);
+    session_registry.unregister(&charge_point_id, connection_id);
     command_sender.cleanup_charge_point(&charge_point_id);
 
     event_bus.publish(Event::ChargePointDisconnected(

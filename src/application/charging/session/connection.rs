@@ -8,6 +8,8 @@ use crate::domain::OcppVersion;
 /// Represents an active WebSocket connection to a charge point
 #[derive(Debug)]
 pub struct Connection {
+    /// Unique identifier for this connection instance
+    pub connection_id: u64,
     /// Charge point ID
     pub charge_point_id: String,
     /// Channel to send messages to the charge point
@@ -31,12 +33,14 @@ pub struct EvictedSession {
 
 impl Connection {
     pub fn new(
+        connection_id: u64,
         charge_point_id: impl Into<String>,
         sender: mpsc::UnboundedSender<String>,
         ocpp_version: OcppVersion,
     ) -> Self {
         let now = Utc::now();
         Self {
+            connection_id,
             charge_point_id: charge_point_id.into(),
             sender,
             ocpp_version,
@@ -74,7 +78,7 @@ mod tests {
 
     fn make_connection() -> (Connection, mpsc::UnboundedReceiver<String>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let conn = Connection::new("CP001", tx, OcppVersion::V16);
+        let conn = Connection::new(1, "CP001", tx, OcppVersion::V16);
         (conn, rx)
     }
 

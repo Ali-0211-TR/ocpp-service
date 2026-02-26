@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -11,14 +12,14 @@ use crate::domain::OcppVersion;
 use super::connection::{Connection, EvictedSession};
 
 /// Minimum interval between reconnections from the same charge point (seconds).
-const RECONNECT_DEBOUNCE_SECS: i64 = 5;
+const RECONNECT_DEBOUNCE_SECS: i64 = 2;
 
 /// Outcome of a registration attempt
 pub enum RegisterResult {
     /// Fresh connection — no previous session existed
-    New,
+    New { connection_id: u64 },
     /// Replaced an existing session (old sender was dropped)
-    Evicted(EvictedSession),
+    Evicted { evicted: EvictedSession, connection_id: u64 },
     /// Rejected because the charge point reconnected too quickly
     Debounced {
         last_connected_at: DateTime<Utc>,
@@ -31,6 +32,8 @@ pub struct SessionRegistry {
     sessions: DashMap<String, Connection>,
     /// Tracks when a charge point was last disconnected (for debounce)
     last_disconnect: DashMap<String, DateTime<Utc>>,
+    /// Monotonically increasing connection ID counter
+    next_connection_id: AtomicU64,
 }
 
 /// Shared, reference-counted session registry
@@ -41,6 +44,7 @@ impl SessionRegistry {
         Self {
             sessions: DashMap::new(),
             last_disconnect: DashMap::new(),
+            next_connection_id: AtomicU64::new(1),
         }
     }
 
@@ -104,8 +108,9 @@ impl SessionRegistry {
             });
 
         // ── Insert new session ─────────────────────────────
-        info!(charge_point_id, %ocpp_version, "Registering charge point session");
-        let connection = Connection::new(charge_point_id, sender, ocpp_version);
+        let connection_id = self.next_connection_id.fetch_add(1, Ordering::Relaxed);
+        info!(charge_point_id, %ocpp_version, connection_id, "Registering charge point session");
+        let connection = Connection::new(connection_id, charge_point_id, sender, ocpp_version);
         self.sessions
             .insert(charge_point_id.to_string(), connection);
 
@@ -116,21 +121,34 @@ impl SessionRegistry {
         metrics::gauge!("ocpp_connected_stations").set(self.sessions.len() as f64);
 
         match evicted {
-            Some(ev) => RegisterResult::Evicted(ev),
-            None => RegisterResult::New,
+            Some(ev) => RegisterResult::Evicted { evicted: ev, connection_id },
+            None => RegisterResult::New { connection_id },
         }
     }
 
     /// Unregister a charge point connection and record disconnect time for debounce.
-    pub fn unregister(&self, charge_point_id: &str) {
-        if self.sessions.remove(charge_point_id).is_some() {
+    ///
+    /// Only removes the session if the `connection_id` matches the current session.
+    /// This prevents a stale/evicted connection's cleanup from removing a newer session.
+    pub fn unregister(&self, charge_point_id: &str, connection_id: u64) {
+        let removed = self.sessions.remove_if(charge_point_id, |_, conn| {
+            conn.connection_id == connection_id
+        });
+        if removed.is_some() {
             self.last_disconnect
                 .insert(charge_point_id.to_string(), Utc::now());
             // Update Prometheus gauge
             metrics::gauge!("ocpp_connected_stations").set(self.sessions.len() as f64);
-            info!(charge_point_id, "Unregistered charge point session");
-        } else {
-            warn!(charge_point_id, "Attempted to unregister unknown session");
+            info!(charge_point_id, connection_id, "Unregistered charge point session");
+        }
+        // If connection_id doesn't match, a newer session exists — do NOT remove it
+    }
+
+    /// Force-unregister a charge point regardless of connection_id (for graceful shutdown).
+    pub fn force_unregister(&self, charge_point_id: &str) {
+        if self.sessions.remove(charge_point_id).is_some() {
+            metrics::gauge!("ocpp_connected_stations").set(self.sessions.len() as f64);
+            info!(charge_point_id, "Force-unregistered charge point session");
         }
     }
 
@@ -207,7 +225,7 @@ mod tests {
     fn register_new_session() {
         let reg = SessionRegistry::new();
         let result = reg.register("CP001", make_sender(), OcppVersion::V16);
-        assert!(matches!(result, RegisterResult::New));
+        assert!(matches!(result, RegisterResult::New { .. }));
         assert_eq!(reg.count(), 1);
         assert!(reg.is_connected("CP001"));
     }
@@ -217,15 +235,19 @@ mod tests {
         let reg = SessionRegistry::new();
         reg.register("CP001", make_sender(), OcppVersion::V16);
         let result = reg.register("CP001", make_sender(), OcppVersion::V16);
-        assert!(matches!(result, RegisterResult::Evicted(_)));
+        assert!(matches!(result, RegisterResult::Evicted { .. }));
         assert_eq!(reg.count(), 1);
     }
 
     #[test]
     fn unregister_removes_session() {
         let reg = SessionRegistry::new();
-        reg.register("CP001", make_sender(), OcppVersion::V16);
-        reg.unregister("CP001");
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        let conn_id = match result {
+            RegisterResult::New { connection_id } => connection_id,
+            _ => panic!("expected New"),
+        };
+        reg.unregister("CP001", conn_id);
         assert_eq!(reg.count(), 0);
         assert!(!reg.is_connected("CP001"));
     }
@@ -233,7 +255,7 @@ mod tests {
     #[test]
     fn unregister_nonexistent_is_noop() {
         let reg = SessionRegistry::new();
-        reg.unregister("CP_UNKNOWN"); // should not panic
+        reg.unregister("CP_UNKNOWN", 999); // should not panic
         assert_eq!(reg.count(), 0);
     }
 
@@ -307,12 +329,43 @@ mod tests {
     #[test]
     fn debounce_rejects_fast_reconnect() {
         let reg = SessionRegistry::new();
-        reg.register("CP001", make_sender(), OcppVersion::V16);
-        reg.unregister("CP001"); // records disconnect time
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        let conn_id = match result {
+            RegisterResult::New { connection_id } => connection_id,
+            _ => panic!("expected New"),
+        };
+        reg.unregister("CP001", conn_id); // records disconnect time
 
         // Immediately try to reconnect — should be debounced
         let result = reg.register("CP001", make_sender(), OcppVersion::V16);
         assert!(matches!(result, RegisterResult::Debounced { .. }));
+    }
+
+    #[test]
+    fn evicted_session_cleanup_does_not_remove_new_session() {
+        let reg = SessionRegistry::new();
+        // First connection
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        let old_conn_id = match result {
+            RegisterResult::New { connection_id } => connection_id,
+            _ => panic!("expected New"),
+        };
+
+        // Second connection evicts first
+        let result = reg.register("CP001", make_sender(), OcppVersion::V16);
+        let new_conn_id = match result {
+            RegisterResult::Evicted { connection_id, .. } => connection_id,
+            _ => panic!("expected Evicted"),
+        };
+
+        // Old connection's cleanup tries to unregister — should be a no-op
+        reg.unregister("CP001", old_conn_id);
+        assert_eq!(reg.count(), 1); // new session still alive!
+        assert!(reg.is_connected("CP001"));
+
+        // New connection's cleanup works correctly
+        reg.unregister("CP001", new_conn_id);
+        assert_eq!(reg.count(), 0);
     }
 
     #[test]
