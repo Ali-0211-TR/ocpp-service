@@ -81,6 +81,11 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
         "MeterValues parsed"
     );
 
+    // Track the transaction found via transactionId (if present) so we can
+    // re-use it for energy_consumed / external_order_id computation below
+    // without a second DB lookup that may fail if status != "Active".
+    let mut tx_from_meter_update: Option<crate::domain::transaction::Transaction> = None;
+
     if let Some(tx_id) = transaction_id {
         match handler
             .service
@@ -102,10 +107,6 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
                         "Charging limit reached! Sending RemoteStop."
                     );
 
-                    // Spawn in a separate task to avoid deadlocking the WS read loop.
-                    // send_command() awaits the charge point's CallResult response, but
-                    // that response can only arrive through this same read loop — so
-                    // awaiting it inline would block forever.
                     let cmd = handler.command_sender.clone();
                     let cp_id = handler.charge_point_id.clone();
                     tokio::spawn(async move {
@@ -129,6 +130,7 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
                         }
                     });
                 }
+                tx_from_meter_update = Some(tx);
             }
             Ok(None) => {
                 warn!(
@@ -149,72 +151,84 @@ pub async fn handle_meter_values(handler: &OcppHandlerV16, payload: &Value) -> V
     }
 
     // Compute energy consumed in this session and resolve external_order_id.
-    // Look up the active transaction even when the CP doesn't include transactionId
-    // in MeterValues (some chargers omit it despite the OCPP spec).
+    // 1. Prefer the transaction already fetched above (via transactionId).
+    // 2. Fall back to connector-based lookup when transactionId is absent.
     let (energy_consumed_wh, external_order_id) = if let Some(energy) = energy_wh {
-        match handler
-            .service
-            .get_active_transaction_for_connector(&handler.charge_point_id, req.connector_id)
-            .await
-        {
-            Ok(Some(tx)) => {
-                // If transactionId was absent, we skipped the auto-stop check above.
-                // Perform it here using the looked-up active transaction.
-                if transaction_id.is_none() {
-                    // Update meter data for this transaction so is_limit_reached() has fresh values
-                    if let Ok(Some(updated_tx)) = handler
-                        .service
-                        .update_transaction_meter_data(
-                            tx.id,
-                            energy_wh.map(|e| e as i32),
-                            power_w,
-                            soc.map(|s| s as i32),
-                        )
-                        .await
-                    {
-                        if updated_tx.is_limit_reached() && handler.service.mark_stop_sent(tx.id) {
-                            warn!(
-                                charge_point_id = handler.charge_point_id.as_str(),
-                                transaction_id = tx.id,
-                                limit_type = ?updated_tx.limit_type,
-                                limit_value = ?updated_tx.limit_value,
-                                "Charging limit reached (no txId in MeterValues)! Sending RemoteStop."
-                            );
+        // Try the transaction we already have from update_transaction_meter_data
+        if let Some(ref tx) = tx_from_meter_update {
+            (Some(energy - tx.meter_start as f64), tx.external_order_id.clone())
+        } else {
+            // Fallback: look up by connector (for chargers that omit transactionId)
+            match handler
+                .service
+                .get_active_transaction_for_connector(&handler.charge_point_id, req.connector_id)
+                .await
+            {
+                Ok(Some(tx)) => {
+                    // If transactionId was absent, we skipped the auto-stop check above.
+                    // Perform it here using the looked-up active transaction.
+                    if transaction_id.is_none() {
+                        if let Ok(Some(updated_tx)) = handler
+                            .service
+                            .update_transaction_meter_data(
+                                tx.id,
+                                energy_wh.map(|e| e as i32),
+                                power_w,
+                                soc.map(|s| s as i32),
+                            )
+                            .await
+                        {
+                            if updated_tx.is_limit_reached() && handler.service.mark_stop_sent(tx.id) {
+                                warn!(
+                                    charge_point_id = handler.charge_point_id.as_str(),
+                                    transaction_id = tx.id,
+                                    limit_type = ?updated_tx.limit_type,
+                                    limit_value = ?updated_tx.limit_value,
+                                    "Charging limit reached (no txId in MeterValues)! Sending RemoteStop."
+                                );
 
-                            let cmd = handler.command_sender.clone();
-                            let cp_id = handler.charge_point_id.clone();
-                            let t_id = tx.id;
-                            tokio::spawn(async move {
-                                let remote_stop_payload = serde_json::json!({
-                                    "transactionId": t_id,
+                                let cmd = handler.command_sender.clone();
+                                let cp_id = handler.charge_point_id.clone();
+                                let t_id = tx.id;
+                                tokio::spawn(async move {
+                                    let remote_stop_payload = serde_json::json!({
+                                        "transactionId": t_id,
+                                    });
+                                    if let Err(e) = cmd
+                                        .send_command(
+                                            &cp_id,
+                                            "RemoteStopTransaction",
+                                            remote_stop_payload,
+                                        )
+                                        .await
+                                    {
+                                        error!(
+                                            charge_point_id = cp_id.as_str(),
+                                            transaction_id = t_id,
+                                            error = ?e,
+                                            "Failed to send RemoteStop for limit-reached transaction (fallback)"
+                                        );
+                                    }
                                 });
-                                if let Err(e) = cmd
-                                    .send_command(
-                                        &cp_id,
-                                        "RemoteStopTransaction",
-                                        remote_stop_payload,
-                                    )
-                                    .await
-                                {
-                                    error!(
-                                        charge_point_id = cp_id.as_str(),
-                                        transaction_id = t_id,
-                                        error = ?e,
-                                        "Failed to send RemoteStop for limit-reached transaction (fallback)"
-                                    );
-                                }
-                            });
+                            }
                         }
                     }
-                }
 
-                (Some(energy - tx.meter_start as f64), tx.external_order_id.clone())
+                    (Some(energy - tx.meter_start as f64), tx.external_order_id.clone())
+                }
+                _ => (None, None),
             }
-            _ => (None, None),
         }
     } else {
         (None, None)
     };
+
+    info!(
+        charge_point_id = handler.charge_point_id.as_str(),
+        ?energy_consumed_wh,
+        ?external_order_id,
+        "MeterValues notification"
+    );
 
     handler
         .event_bus
