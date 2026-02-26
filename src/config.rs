@@ -302,7 +302,7 @@ fn default_login_rpm() -> u32 {
     10
 }
 fn default_ws_rpm() -> u32 {
-    20
+    600
 }
 fn default_pool_max_connections() -> u32 {
     10
@@ -323,7 +323,7 @@ fn default_ws_auth_mode() -> String {
     "none".into()
 }
 fn default_reject_unknown() -> bool {
-    true
+    false
 }
 
 // ── Trait implementations ──────────────────────────────────────
