@@ -28,6 +28,8 @@ export function App() {
     const validate = async () => {
       const stored = useAuthStore.getState()
       if (!stored.token) {
+        // No token — clear any stale isAuthenticated flag
+        if (stored.isAuthenticated) clearAuth()
         setChecking(false)
         return
       }

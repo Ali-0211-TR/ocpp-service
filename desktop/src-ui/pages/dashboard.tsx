@@ -15,10 +15,10 @@ import {
 } from 'lucide-react'
 
 interface Stats {
-  total_charge_points: number
-  online_charge_points: number
-  total_connectors: number
-  available_connectors: number
+  total: number
+  online: number
+  offline: number
+  charging: number
 }
 
 export function DashboardPage() {
@@ -35,7 +35,9 @@ export function DashboardPage() {
           updateApiBaseUrl(info.api_port)
           try {
             const res = await apiClient.get('/api/v1/charge-points/stats')
-            setStats(res.data)
+            // Backend wraps response in ApiResponse: { success, data }
+            setStats(res.data?.data ?? res.data)
+            setError(null)
           } catch {
             setError('Не удалось загрузить статистику')
           }
@@ -106,28 +108,30 @@ export function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Зарядные станции"
-            value={stats?.total_charge_points ?? 0}
+            value={stats?.total ?? 0}
             description="Зарегистрировано"
             icon={Plug}
           />
           <StatCard
             title="Онлайн"
-            value={stats?.online_charge_points ?? 0}
-            description={`из ${stats?.total_charge_points ?? 0} станций`}
-            icon={stats?.online_charge_points ? Wifi : WifiOff}
-            variant={stats?.online_charge_points ? 'success' : 'warning'}
+            value={stats?.online ?? 0}
+            description={`из ${stats?.total ?? 0} станций`}
+            icon={stats?.online ? Wifi : WifiOff}
+            variant={stats?.online ? 'success' : 'warning'}
           />
           <StatCard
-            title="Коннекторы"
-            value={stats?.total_connectors ?? 0}
-            description={`${stats?.available_connectors ?? 0} доступно`}
+            title="Оффлайн"
+            value={stats?.offline ?? 0}
+            description="Нет связи"
+            icon={WifiOff}
+            variant={stats?.offline ? 'warning' : 'default'}
+          />
+          <StatCard
+            title="Заряжаются"
+            value={stats?.charging ?? 0}
+            description="Активные сессии"
             icon={PlugZap}
-          />
-          <StatCard
-            title="Активность"
-            value="—"
-            description="Активные транзакции"
-            icon={Activity}
+            variant={stats?.charging ? 'success' : 'default'}
           />
         </div>
       )}

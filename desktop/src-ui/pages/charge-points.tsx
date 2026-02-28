@@ -35,7 +35,9 @@ export function ChargePointsPage() {
         if (!info.running) return
         updateApiBaseUrl(info.api_port)
         const res = await apiClient.get('/api/v1/charge-points')
-        setChargePoints(res.data)
+        // Backend wraps response in ApiResponse: { success, data }
+        const list = res.data?.data ?? res.data
+        setChargePoints(Array.isArray(list) ? list : [])
       } catch (e) {
         console.error('Failed to load charge points:', e)
       } finally {

@@ -1,5 +1,10 @@
 import axios from 'axios'
 import { getServerStatus } from './tauri'
+import { useAuthStore } from '@/shared/store/auth-store'
+
+// ── Constants ─────────────────────────────────────────────────────
+
+const AUTH_STORAGE_KEY = 'csms-auth'
 
 /** Create an Axios instance that targets the embedded CSMS REST API. */
 async function getApiPort(): Promise<number> {
@@ -39,10 +44,17 @@ export function updateApiBaseUrl(port: number) {
 
 // ── Auth interceptor ──────────────────────────────────────────────
 
-/** Get auth token from Zustand persisted store (localStorage). */
+/**
+ * Get auth token directly from localStorage.
+ *
+ * Reading from localStorage is always synchronous and consistent
+ * — avoids Zustand hydration timing issues and Vite HMR module
+ * re-evaluation problems where the store instance may differ
+ * between client.ts and the React components.
+ */
 export function getAuthToken(): string | null {
   try {
-    const raw = localStorage.getItem('csms-auth')
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
       return parsed?.state?.token ?? null
@@ -64,17 +76,23 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-/** Auto-logout on 401 responses (expired / invalid token). */
+/**
+ * Auto-logout on 401 responses, but ONLY when the request
+ * actually carried a token (i.e. token was sent but rejected).
+ * Prevents logout on unauthenticated requests like login itself.
+ */
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
-      // Clear persisted auth state
-      try {
-        localStorage.removeItem('csms-auth')
-      } catch { /* ignore */ }
-      // Force reload to show login
-      window.location.reload()
+      const sentAuth = error?.config?.headers?.Authorization
+      if (sentAuth) {
+        // Clear persisted auth and let React re-render via Zustand subscription
+        try {
+          localStorage.removeItem(AUTH_STORAGE_KEY)
+        } catch { /* ignore */ }
+        useAuthStore.getState().clearAuth()
+      }
     }
     return Promise.reject(error)
   }
