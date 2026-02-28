@@ -525,7 +525,7 @@ impl From<&AppConfig> for Config {
 pub fn default_config_path() -> PathBuf {
     dirs_next::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("texnouz-ocpp")
+        .join("texnouz-csms")
         .join("config.toml")
 }
 
@@ -708,7 +708,7 @@ impl AppConfig {
         let content =
             toml::to_string_pretty(self).map_err(|e| format!("Serialization error: {}", e))?;
 
-        let header = "# Texnouz OCPP Central System — Configuration\n\
+        let header = "# Texnouz CSMS — Configuration\n\
                       # Изменения вступят в силу после перезапуска сервера.\n\n";
 
         std::fs::write(path, format!("{}{}", header, content))

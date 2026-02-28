@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Texnouz OCPP — Build & Bundle Script ─────────────────────
-# Builds ocpp-service + ocpp-desktop and creates installer packages
+# ── Texnouz CSMS — Build & Bundle Script ─────────────────────
+# Builds csms-service + csms-desktop and creates installer packages
 #
 # Usage:
 #   ./build.sh              — build all (debug)
@@ -17,29 +17,29 @@ BUNDLE_TARGET="${2:-}"
 
 TARGET_TRIPLE=$(rustc -vV | grep host | awk '{print $2}')
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║  Texnouz OCPP — Build & Bundle                      ║"
+echo "║  Texnouz CSMS — Build & Bundle                      ║"
 echo "╠══════════════════════════════════════════════════════╣"
 echo "║  Target: $TARGET_TRIPLE"
 echo "║  Mode:   $MODE"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# ── Step 1: Build ocpp-service ──────────────────────────────
-echo "📦 [1/3] Building ocpp-service..."
+# ── Step 1: Build csms-service ──────────────────────────────
+echo "📦 [1/3] Building csms-service..."
 if [ "$MODE" = "release" ]; then
-    cargo build --release --bin ocpp-service
-    SERVICE_BIN="target/release/ocpp-service"
+    cargo build --release --bin csms-service
+    SERVICE_BIN="target/release/csms-service"
 else
-    cargo build --bin ocpp-service
-    SERVICE_BIN="target/debug/ocpp-service"
+    cargo build --bin csms-service
+    SERVICE_BIN="target/debug/csms-service"
 fi
-echo "   ✅ ocpp-service built: $SERVICE_BIN"
+echo "   ✅ csms-service built: $SERVICE_BIN"
 
 # ── Step 2: Copy binary for Tauri externalBin ───────────────
 echo "📋 [2/3] Preparing external binary for Tauri..."
 mkdir -p desktop/binaries
-cp "$SERVICE_BIN" "desktop/binaries/ocpp-service-${TARGET_TRIPLE}"
-echo "   ✅ Copied to desktop/binaries/ocpp-service-${TARGET_TRIPLE}"
+cp "$SERVICE_BIN" "desktop/binaries/csms-service-${TARGET_TRIPLE}"
+echo "   ✅ Copied to desktop/binaries/csms-service-${TARGET_TRIPLE}"
 
 # ── Step 3: Build desktop app / bundle ──────────────────────
 if [ "$MODE" = "release" ]; then
@@ -60,6 +60,6 @@ if [ "$MODE" = "release" ]; then
     echo "════════════════════════════════════════════════════════"
 else
     echo "🔨 [3/3] Building Tauri desktop (debug)..."
-    cargo build -p ocpp-desktop
-    echo "   ✅ Debug build complete: target/debug/ocpp-desktop"
+    cargo build -p csms-desktop
+    echo "   ✅ Debug build complete: target/debug/csms-desktop"
 fi

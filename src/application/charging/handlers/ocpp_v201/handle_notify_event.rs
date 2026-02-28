@@ -94,20 +94,20 @@ pub async fn handle_notify_event(handler: &OcppHandlerV201, payload: &Value) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::charging::handlers::ocpp_v201_handler::OcppHandlerV201;
-    use crate::application::charging::services::device_report::DeviceReportStore;
-    use crate::application::events::EventBus;
-    use std::sync::Arc;
+    // use crate::application::charging::handlers::ocpp_v201_handler::OcppHandlerV201;
+    // use crate::application::charging::services::device_report::DeviceReportStore;
+    // use crate::application::events::EventBus;
+    // use std::sync::Arc;
 
-    fn make_handler() -> OcppHandlerV201 {
-        // We need stubs — the tests only exercise the handler logic,
-        // not the full service stack. Re-use the minimal approach from
-        // other handler tests.
-        //
-        // This test is limited to verifying JSON parsing + response shape.
-        // Full integration tests go elsewhere.
-        panic!("unit tests for handler require service stubs — see integration tests")
-    }
+    // fn make_handler() -> OcppHandlerV201 {
+    //     // We need stubs — the tests only exercise the handler logic,
+    //     // not the full service stack. Re-use the minimal approach from
+    //     // other handler tests.
+    //     //
+    //     // This test is limited to verifying JSON parsing + response shape.
+    //     // Full integration tests go elsewhere.
+    //     panic!("unit tests for handler require service stubs — see integration tests")
+    // }
 
     #[test]
     fn test_notify_event_response_shape() {

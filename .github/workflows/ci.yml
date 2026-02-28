@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t texnouz-ocpp:${{ github.sha }} .
+        run: docker build -t texnouz-csms:${{ github.sha }} .
 
       - name: Verify Docker image
-        run: docker run --rm texnouz-ocpp:${{ github.sha }} --help || true
+        run: docker run --rm texnouz-csms:${{ github.sha }} --help || true

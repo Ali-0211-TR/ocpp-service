@@ -1,0 +1,16 @@
+[package]
+name = "csms-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Texnouz CSMS — CLI server"
+
+[[bin]]
+name = "csms-service"
+path = "src/main.rs"
+
+[dependencies]
+texnouz_csms = { path = "..", package = "csms-service" }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4", features = ["derive"] }

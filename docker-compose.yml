@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────
-# Texnouz OCPP Central System — Docker Compose
+# Texnouz CSMS — Docker Compose
 # ─────────────────────────────────────────────────────────────────
 #
 # Usage:
@@ -13,7 +13,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: texnouz-ocpp
+    container_name: texnouz-csms
     restart: unless-stopped
     ports:
       - "${OCPP_API_PORT:-8080}:8080"   # REST API + Swagger

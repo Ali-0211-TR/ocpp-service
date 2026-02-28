@@ -1,4 +1,4 @@
-//! # Texnouz OCPP Central System
+//! # Texnouz CSMS
 //!
 //! OCPP 1.6 Central System implementation for managing EV charging stations.
 //!
@@ -16,6 +16,7 @@ pub mod config;
 pub mod domain;
 pub mod infrastructure;
 pub mod interfaces;
+pub mod server;
 pub mod shared;
 
 // Re-export commonly used types at crate root

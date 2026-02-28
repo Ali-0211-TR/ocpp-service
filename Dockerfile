@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────
-# Texnouz OCPP Central System — Multi-stage Docker Build
+# Texnouz CSMS — Multi-stage Docker Build
 # ─────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Build ──────────────────────────────────────────────
@@ -19,7 +19,7 @@ COPY Cargo.toml Cargo.lock* ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "" > src/lib.rs
 
 # Build only dependencies (cached if Cargo.toml didn't change)
-RUN cargo build --release --bin ocpp-service 2>/dev/null || true
+RUN cargo build --release --bin csms-service 2>/dev/null || true
 RUN rm -rf src
 
 # Copy the actual source
@@ -29,7 +29,7 @@ COPY src/ src/
 RUN touch src/main.rs src/lib.rs
 
 # Build the final binary
-RUN cargo build --release --bin ocpp-service
+RUN cargo build --release --bin csms-service
 
 # ── Stage 2: Runtime ───────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -40,17 +40,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN groupadd -r ocpp && useradd -r -g ocpp -m -d /home/ocpp ocpp
+RUN groupadd -r csms && useradd -r -g csms -m -d /home/csms csms
 
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /app/target/release/ocpp-service /app/ocpp-service
+COPY --from=builder /app/target/release/csms-service /app/csms-service
 
 # Create directories for config and data
-RUN mkdir -p /app/data /app/config && chown -R ocpp:ocpp /app
+RUN mkdir -p /app/data /app/config && chown -R csms:csms /app
 
-USER ocpp
+USER csms
 
 # Expose REST API and WebSocket ports
 EXPOSE 8080 9000
@@ -65,4 +65,4 @@ ENV OCPP_CONFIG=/app/config/config.toml \
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["/app/ocpp-service"]
+ENTRYPOINT ["/app/csms-service"]

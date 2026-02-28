@@ -1,6 +1,6 @@
 //!
 //! OCPP 1.6 WebSocket server for managing EV charging stations.
-//! Reads configuration from TOML file (~/.config/texnouz-ocpp/config.toml).
+//! Reads configuration from TOML file (~/.config/texnouz-csms/config.toml).
 
 use std::sync::Arc;
 
@@ -10,19 +10,19 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use metrics_exporter_prometheus;
-use texnouz_ocpp::application::commands::{create_command_dispatcher, create_command_sender};
-use texnouz_ocpp::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
-use texnouz_ocpp::application::charging::services::device_report::DeviceReportStore;
-use texnouz_ocpp::application::session::SessionRegistry;
-use texnouz_ocpp::config::AppConfig;
-use texnouz_ocpp::domain::OcppVersion;
-use texnouz_ocpp::infrastructure::crypto::jwt::JwtConfig;
-use texnouz_ocpp::infrastructure::database::migrator::Migrator;
-use texnouz_ocpp::interfaces::ws::{
+use texnouz_csms::application::commands::{create_command_dispatcher, create_command_sender};
+use texnouz_csms::application::services::{BillingService, ChargePointService, HeartbeatMonitor};
+use texnouz_csms::application::charging::services::device_report::DeviceReportStore;
+use texnouz_csms::application::session::SessionRegistry;
+use texnouz_csms::config::AppConfig;
+use texnouz_csms::domain::OcppVersion;
+use texnouz_csms::infrastructure::crypto::jwt::JwtConfig;
+use texnouz_csms::infrastructure::database::migrator::Migrator;
+use texnouz_csms::interfaces::ws::{
     OcppServer, ProtocolAdapters, V16AdapterFactory, V201AdapterFactory,
 };
-use texnouz_ocpp::shared::shutdown::ShutdownCoordinator;
-use texnouz_ocpp::{
+use texnouz_csms::shared::shutdown::ShutdownCoordinator;
+use texnouz_csms::{
     create_api_router, create_event_bus, default_config_path, init_database, Config,
     DatabaseConfig, SeaOrmRepositoryProvider,
 };
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    info!("Starting Texnouz OCPP Central System...");
+    info!("Starting Texnouz CSMS...");
 
     // ── Prometheus metrics recorder (must be installed before any metrics calls) ──
     let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jwt_config = JwtConfig {
         secret: app_cfg.security.jwt_secret.clone(),
         expiration_hours: app_cfg.security.jwt_expiration_hours,
-        issuer: "texnouz-ocpp".to_string(),
+        issuer: "texnouz-csms".to_string(),
     };
     info!(
         "JWT configured with {}h token expiration",
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     create_default_admin(&db, &app_cfg).await;
 
     // Initialize repository provider (replaces monolithic Storage)
-    let repos: Arc<dyn texnouz_ocpp::domain::RepositoryProvider> =
+    let repos: Arc<dyn texnouz_csms::domain::RepositoryProvider> =
         Arc::new(SeaOrmRepositoryProvider::new(db.clone()));
 
     // Initialize services
@@ -181,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     heartbeat_monitor.start(shutdown_signal.clone());
 
     // Start Reservation Expiry Task
-    texnouz_ocpp::application::charging::services::start_reservation_expiry_task(
+    texnouz_csms::application::charging::services::start_reservation_expiry_task(
         repos.clone(),
         shutdown_signal.clone(),
         60, // check every 60 seconds
@@ -253,15 +253,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info!("✅ Database connection closed");
     }
 
-    info!("👋 Texnouz OCPP Central System shutdown complete");
+    info!("👋 Texnouz CSMS shutdown complete");
     Ok(())
 }
 
 /// Create default admin user if no users exist
 async fn create_default_admin(db: &sea_orm::DatabaseConnection, app_cfg: &AppConfig) {
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
-    use texnouz_ocpp::infrastructure::crypto::password::hash_password;
-    use texnouz_ocpp::infrastructure::database::entities::user::{self, UserRole};
+    use texnouz_csms::infrastructure::crypto::password::hash_password;
+    use texnouz_csms::infrastructure::database::entities::user::{self, UserRole};
 
     let users_count = user::Entity::find().count(db).await.unwrap_or(0);
 

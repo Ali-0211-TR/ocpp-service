@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capability for the main window — allows core IPC and all custom commands.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:webview:default",
+    "core:app:default",
+    "core:event:default",
+    "core:path:default"
+  ]
+}

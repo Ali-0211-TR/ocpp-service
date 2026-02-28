@@ -365,7 +365,7 @@ impl Modify for SecurityAddon {
         (name = "WebSocket Notifications", description = "Real-time event notifications via WebSocket"),
     ),
     info(
-        title = "Texnouz OCPP Central System API",
+        title = "Texnouz CSMS API",
         version = "1.0.0",
         description = "REST API for managing OCPP 1.6 Charge Points",
         license(name = "MIT"),

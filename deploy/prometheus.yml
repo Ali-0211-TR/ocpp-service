@@ -1,4 +1,4 @@
-# Prometheus configuration for Texnouz OCPP Central System
+# Prometheus configuration for Texnouz CSMS
 
 global:
   scrape_interval: 15s
@@ -10,4 +10,4 @@ scrape_configs:
     static_configs:
       - targets: ["ocpp:8080"]
         labels:
-          service: "texnouz-ocpp"
+          service: "texnouz-csms"

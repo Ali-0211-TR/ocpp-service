@@ -1,4 +1,4 @@
-# TODO — Texnouz OCPP Central System
+# TODO — Texnouz CSMS
 
 > Дорожная карта до production-ready CSMS.
 > Обновлено: 2026-02-13

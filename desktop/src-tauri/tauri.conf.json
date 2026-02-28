@@ -1,0 +1,78 @@
+{
+  "productName": "Texnouz CSMS",
+  "version": "0.1.0",
+  "identifier": "com.texnouz.csms",
+  "build": {
+    "devUrl": "http://localhost:5174",
+    "frontendDist": "../dist",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Texnouz CSMS — Панель управления",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "visible": false,
+        "center": true,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/256x256.png",
+      "icons/512x512.png",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "copyright": "© 2026 Texnouz",
+    "category": "Utility",
+    "shortDescription": "OCPP 1.6 / 2.0.1 Central System for EV Charging Stations",
+    "longDescription": "Texnouz CSMS — система управления зарядными станциями электромобилей по протоколу OCPP 1.6 и 2.0.1. Включает REST API, WebSocket-сервер, веб-панель управления и системный трей.",
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libappindicator3-1"
+        ],
+        "section": "utils",
+        "priority": "optional"
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "libappindicator-gtk3"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      },
+      "nsis": {
+        "languages": ["English", "Russian"],
+        "displayLanguageSelector": true,
+        "installMode": "both"
+      }
+    }
+  }
+}

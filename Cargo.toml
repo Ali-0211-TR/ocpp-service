@@ -1,18 +1,14 @@
 [workspace]
-members = ["desktop"]
+members = ["cli", "desktop/src-tauri"]
 
 [package]
-name = "ocpp-service"
+name = "csms-service"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "texnouz_ocpp"
+name = "texnouz_csms"
 path = "src/lib.rs"
-
-[[bin]]
-name = "ocpp-service"
-path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

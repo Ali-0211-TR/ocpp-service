@@ -24,7 +24,7 @@ impl Default for JwtConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(24),
-            issuer: "texnouz-ocpp".to_string(),
+            issuer: "texnouz-csms".to_string(),
         }
     }
 }
